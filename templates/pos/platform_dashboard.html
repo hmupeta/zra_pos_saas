@@ -1,0 +1,135 @@
+{% extends "pos/base.html" %}
+{% block title %}Platform Admin{% endblock %}
+{% block body %}
+<div class="h-screen flex bg-slate-50">
+  
+  <!-- Sidebar -->
+  <aside class="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-2xl z-20">
+    <div class="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-950/50">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center text-white shadow-lg">
+          <i data-lucide="shield" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="font-bold text-white tracking-wide text-lg">Nimbus HQ</div>
+          <div class="text-[10px] text-slate-400 uppercase tracking-wider">Platform Admin</div>
+        </div>
+      </div>
+    </div>
+    <nav class="flex-1 py-6 px-4 space-y-1">
+      <a href="/platform" class="nav-link active"><i data-lucide="layout-dashboard" class="w-4 h-4 mr-3"></i> Overview</a>
+      <a href="/platform/tenants" class="nav-link"><i data-lucide="building" class="w-4 h-4 mr-3"></i> Tenants</a>
+      <a href="/platform/applications" class="nav-link"><i data-lucide="file-text" class="w-4 h-4 mr-3"></i> Applications</a>
+      <div class="pt-4 mt-4 border-t border-slate-800">
+        <a href="/pos" class="nav-link text-indigo-400"><i data-lucide="external-link" class="w-4 h-4 mr-3"></i> View Tenant POS</a>
+      </div>
+    </nav>
+    <div class="p-4 border-t border-slate-800 bg-slate-950/50">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center font-bold text-white">A</div>
+          <div>
+            <div class="text-sm font-medium text-white">Super Admin</div>
+            <div class="text-[10px] text-indigo-400 font-semibold uppercase">HQ Access</div>
+          </div>
+        </div>
+        <button onclick="logout()" class="text-slate-400 hover:text-red-400"><i data-lucide="log-out" class="w-5 h-5"></i></button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="flex-1 overflow-y-auto p-8" x-data="platformDash()" x-init="load()">
+    <div class="flex justify-between items-end mb-8">
+      <div>
+        <h1 class="text-3xl font-bold text-slate-900 tracking-tight">SaaS Overview</h1>
+        <p class="text-slate-500 mt-1">Platform performance and tenant metrics</p>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" x-show="data">
+      <div class="card p-6 border-l-4 border-l-green-500">
+        <div class="text-sm font-medium text-gray-500 mb-1">Monthly Recurring Revenue</div>
+        <div class="text-3xl font-bold text-slate-900" x-text="formatCurrency(data?.kpis.mrr)"></div>
+        <div class="text-sm text-green-600 mt-2 font-medium">ARR: <span x-text="formatCurrency(data?.kpis.arr)"></span></div>
+      </div>
+      <div class="card p-6 border-l-4 border-l-indigo-500">
+        <div class="text-sm font-medium text-gray-500 mb-1">Active Tenants</div>
+        <div class="text-3xl font-bold text-slate-900" x-text="data?.kpis.active_tenants"></div>
+        <div class="text-sm text-gray-500 mt-2"><span x-text="data?.kpis.trial_tenants"></span> on free trial</div>
+      </div>
+      <div class="card p-6 border-l-4 border-l-orange-500">
+        <div class="text-sm font-medium text-gray-500 mb-1">Pending Signups</div>
+        <div class="text-3xl font-bold text-slate-900" x-text="data?.kpis.pending_applications"></div>
+        <a href="/platform/applications" class="text-sm text-orange-600 hover:underline mt-2 inline-block font-medium">Review now &rarr;</a>
+      </div>
+      <div class="card p-6 border-l-4 border-l-red-500">
+        <div class="text-sm font-medium text-gray-500 mb-1">Outstanding Billing</div>
+        <div class="text-3xl font-bold text-slate-900" x-text="formatCurrency(data?.kpis.outstanding_balance)"></div>
+        <div class="text-sm text-red-600 mt-2 font-medium">Needs collection</div>
+      </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6" x-show="data">
+      
+      <!-- Recent Signups -->
+      <div class="card p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="font-bold text-lg text-slate-900">Recent Applications</h2>
+          <a href="/platform/applications" class="text-sm text-indigo-600 hover:underline">View All</a>
+        </div>
+        <div class="space-y-3">
+          <template x-for="s in data?.recent_signups" :key="s.id">
+            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+              <div>
+                <div class="font-bold text-sm text-slate-900" x-text="s.business_name"></div>
+                <div class="text-xs text-gray-500" x-text="s.contact_email"></div>
+              </div>
+              <span class="px-2 py-1 rounded text-xs font-bold uppercase"
+                    :class="s.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'"
+                    x-text="s.status"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Recent Payments -->
+      <div class="card p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="font-bold text-lg text-slate-900">Recent Revenue</h2>
+        </div>
+        <div class="space-y-3">
+          <template x-for="p in data?.recent_payments" :key="p.id">
+            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+              <div>
+                <div class="font-bold text-sm text-slate-900" x-text="p.tenant_name"></div>
+                <div class="text-xs text-gray-500" x-text="p.payment_method + ' · ' + p.payment_date"></div>
+              </div>
+              <span class="font-bold text-green-600" x-text="formatCurrency(p.amount)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script>
+function platformDash() {
+  return {
+    data: null,
+    async load() {
+      if (!requireAuth()) return;
+      const u = getUser();
+      if (u.user_type !== 'PLATFORM_ADMIN') { location.href = '/pos'; return; }
+      
+      try {
+        this.data = await apiFetch('/saas/admin/dashboard/');
+      } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

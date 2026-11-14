@@ -1,0 +1,404 @@
+{% extends "pos/base.html" %}
+{% block title %}Financial Reports{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="reportsApp()" x-init="if(localStorage.getItem('open_zra')) { localStorage.removeItem('open_zra'); load('zra'); } else { load('trial'); }">
+    
+    <!-- Header & Date Range -->
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Financial Reports</h1>
+        <p class="text-gray-500 text-sm mt-1">Trial balance, balance sheet, income statement, and cash flow.</p>
+      </div>
+      
+      <div class="flex items-center gap-2 bg-white p-2 rounded-lg border shadow-sm">
+        <input type="date" x-model="startDate" class="input-field text-sm py-1.5">
+        <span class="text-gray-400">to</span>
+        <input type="date" x-model="endDate" class="input-field text-sm py-1.5">
+        <button @click="loadCustom()" class="btn-primary text-sm py-1.5 px-4 ml-2">Generate</button>
+        <button @click="printReport()" class="btn-secondary text-sm py-1.5 px-4 flex items-center gap-1" :disabled="!data">
+          <i data-lucide="printer" class="w-4 h-4"></i> PDF
+        </button>
+      </div>
+    </div>
+
+    <!-- Tabs Navigation -->
+    <div class="flex gap-2 mb-6 border-b border-gray-200 overflow-x-auto pb-1">
+      <template x-for="t in tabs" :key="t.id">
+        <button @click="load(t.id)" 
+                :class="tab === t.id ? 'border-b-2 border-brand-600 text-brand-700 font-bold bg-brand-50' : 'text-gray-500 hover:bg-gray-50 font-medium'"
+                class="px-4 py-2 text-sm rounded-t-lg transition-colors whitespace-nowrap">
+          <span x-text="t.label"></span>
+        </button>
+      </template>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="flex justify-center py-20">
+      <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-600"></div>
+    </div>
+
+    <!-- Content Area -->
+    <div x-show="!loading && data" class="animate-fade-in">
+      
+      <!-- 1. Trial Balance -->
+      <div x-show="tab === 'trial'" class="card overflow-hidden">
+        <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+          <h2 class="font-bold text-slate-800">Trial Balance</h2>
+          <button @click="exportCsv('Trial_Balance', data?.accounts)" class="btn-secondary text-xs">Export CSV</button>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-white text-left text-xs uppercase text-gray-500 border-b">
+            <tr>
+              <th class="px-6 py-3">Code</th>
+              <th class="px-6 py-3">Account Name</th>
+              <th class="px-6 py-3 text-right">Debit (K)</th>
+              <th class="px-6 py-3 text-right">Credit (K)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="a in data.accounts || []" :key="a.code">
+              <tr class="border-b hover:bg-gray-50">
+                <td class="px-6 py-3 font-mono text-xs text-brand-600" x-text="a.code"></td>
+                <td class="px-6 py-3 font-medium text-slate-700" x-text="a.name"></td>
+                <td class="px-6 py-3 text-right" x-text="a.debit > 0 ? formatCurrency(a.debit) : '-'"></td>
+                <td class="px-6 py-3 text-right" x-text="a.credit > 0 ? formatCurrency(a.credit) : '-'"></td>
+              </tr>
+            </template>
+            <tr class="bg-gray-100 font-bold border-t-2">
+              <td class="px-6 py-4" colSpan="2">TOTALS</td>
+              <td class="px-6 py-4 text-right" x-text="formatCurrency(data.total_debit)"></td>
+              <td class="px-6 py-4 text-right" x-text="formatCurrency(data.total_credit)"></td>
+            </tr>
+          </tbody>
+        </table>
+        <div x-show="data && !data.balanced" class="p-3 bg-red-100 text-red-800 text-center font-bold text-sm">
+          ⚠️ Books are NOT balanced. Debits must equal Credits.
+        </div>
+      </div>
+
+      <!-- 2. Balance Sheet -->
+      <div x-show="tab === 'balance'" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card p-6 border-t-4 border-green-500">
+          <h2 class="text-xl font-bold mb-6 text-slate-800">Assets</h2>
+          <div class="flex justify-between items-center border-b pb-4 mb-4">
+            <span class="text-gray-500 font-medium">Total Assets</span>
+            <span class="text-2xl font-bold text-green-700" x-text="formatCurrency(data?.assets)"></span>
+          </div>
+        </div>
+        <div class="card p-6 border-t-4 border-brand-500">
+          <h2 class="text-xl font-bold mb-6 text-slate-800">Liabilities & Equity</h2>
+          <div class="space-y-3 text-sm">
+            <div class="flex justify-between"><span class="text-gray-500">Liabilities</span><span class="font-medium" x-text="formatCurrency(data?.liabilities)"></span></div>
+            <div class="flex justify-between"><span class="text-gray-500">Equity</span><span class="font-medium" x-text="formatCurrency(data?.equity)"></span></div>
+            <div class="flex justify-between"><span class="text-gray-500">Net Income</span><span class="font-medium" x-text="formatCurrency(data?.net_income)"></span></div>
+            <div class="flex justify-between border-t pt-3 mt-3 font-bold text-lg">
+              <span>Total L&E</span>
+              <span class="text-brand-700" x-text="formatCurrency((data?.liabilities||0) + (data?.equity||0) + (data?.net_income||0))"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Income Statement -->
+      <div x-show="tab === 'income'" class="card p-6 max-w-3xl border-t-4 border-purple-500">
+        <h2 class="text-xl font-bold mb-6 text-slate-800">Income Statement (P&L)</h2>
+        <div class="flex justify-between py-3 border-b"><span class="text-gray-600 font-medium">Total Revenue</span><span class="font-bold" x-text="formatCurrency(data?.revenue)"></span></div>
+        <div class="flex justify-between py-3 border-b"><span class="text-gray-600 font-medium">Total Expenses</span><span class="font-bold text-red-600" x-text="formatCurrency(data?.expenses)"></span></div>
+        <div class="flex justify-between py-4 text-2xl font-bold">
+          <span>Net Income</span>
+          <span :class="data?.net_income >= 0 ? 'text-green-600' : 'text-red-600'" x-text="formatCurrency(data?.net_income)"></span>
+        </div>
+        <div class="text-sm text-gray-500 bg-gray-50 p-3 rounded">Profit Margin: <span class="font-bold" x-text="(data?.margin_percent || 0).toFixed(1)"></span>%</div>
+      </div>
+
+      <!-- 4. Cash Flow -->
+      <div x-show="tab === 'cash_flow'" class="space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="card p-6 border-l-4 border-green-500">
+            <div class="text-sm text-gray-500 font-medium">Cash Inflows</div>
+            <div class="text-2xl font-bold text-green-700 mt-1" x-text="formatCurrency(data?.inflows)"></div>
+          </div>
+          <div class="card p-6 border-l-4 border-red-500">
+            <div class="text-sm text-gray-500 font-medium">Cash Outflows</div>
+            <div class="text-2xl font-bold text-red-700 mt-1" x-text="formatCurrency(data?.outflows)"></div>
+          </div>
+          <div class="card p-6 bg-slate-900 text-white">
+            <div class="text-sm text-slate-300 font-medium">Net Cash Flow</div>
+            <div class="text-2xl font-bold mt-1" :class="data?.net_cash_flow >= 0 ? 'text-green-400' : 'text-red-400'" x-text="formatCurrency(data?.net_cash_flow)"></div>
+          </div>
+        </div>
+
+        <div class="card overflow-hidden">
+          <div class="p-4 border-b bg-gray-50"><h3 class="font-bold text-slate-800">Cash Movement Details</h3></div>
+          <table class="w-full text-sm">
+            <thead class="bg-white text-left text-xs uppercase text-gray-500 border-b">
+              <tr><th class="px-6 py-3">Date</th><th class="px-6 py-3">Ref</th><th class="px-6 py-3">Description</th><th class="px-6 py-3 text-right text-green-600">Inflow</th><th class="px-6 py-3 text-right text-red-600">Outflow</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="d in data.details || []" :key="d.journal + d.date">
+                <tr class="border-b hover:bg-gray-50">
+                  <td class="px-6 py-3 text-gray-500" x-text="d.date"></td>
+                  <td class="px-6 py-3 font-mono text-xs text-brand-600" x-text="d.journal"></td>
+                  <td class="px-6 py-3" x-text="d.description"></td>
+                  <td class="px-6 py-3 text-right font-medium text-green-700" x-text="d.inflow > 0 ? formatCurrency(d.inflow) : '-'"></td>
+                  <td class="px-6 py-3 text-right font-medium text-red-700" x-text="d.outflow > 0 ? formatCurrency(d.outflow) : '-'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 5. Sales by Category -->
+      <div x-show="tab === 'category'" class="card overflow-hidden">
+        <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+          <h2 class="font-bold text-slate-800">Revenue by Category</h2>
+          <button @click="exportCsv('Sales_By_Category', data)" class="btn-secondary text-xs">Export CSV</button>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-white text-left text-xs uppercase text-gray-500 border-b">
+            <tr><th class="px-6 py-3">Category</th><th class="px-6 py-3 text-right">Qty Sold</th><th class="px-6 py-3 text-right">Total Revenue</th></tr>
+          </thead>
+          <tbody>
+            <template x-for="c in data || []" :key="c.category">
+              <tr class="border-b hover:bg-gray-50">
+                <td class="px-6 py-3 font-medium text-slate-700" x-text="c.category"></td>
+                <td class="px-6 py-3 text-right" x-text="c.qty"></td>
+                <td class="px-6 py-3 text-right font-bold text-brand-700" x-text="formatCurrency(c.revenue)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="data && data.length === 0" class="p-8 text-center text-gray-400">No sales in this period.</div>
+      </div>
+
+
+      <!-- ZRA VAT Return -->
+      <div x-show="tab === 'zra'" class="card p-6 max-w-2xl border-t-4 border-brand-600">
+        <div class="flex justify-between items-start mb-6">
+          <div>
+            <h2 class="text-xl font-bold text-slate-800">ZRA VAT Return Summary</h2>
+            <p class="text-sm text-gray-500">For the period: <span x-text="startDate"></span> to <span x-text="endDate"></span></p>
+          </div>
+          <button @click="printReport()" class="btn-secondary flex items-center gap-2 text-sm">
+            <i data-lucide="printer" class="w-4 h-4"></i> Print / PDF
+          </button>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-6 border-b pb-6 mb-6">
+          <div class="bg-gray-50 p-4 rounded-lg border">
+            <div class="text-sm text-gray-500 font-medium">Gross Sales (VAT Inclusive)</div>
+            <div class="text-3xl font-bold text-slate-800 mt-1" x-text="formatCurrency(data?.gross_sales)"></div>
+          </div>
+          <div class="bg-brand-50 p-4 rounded-lg border border-brand-100">
+            <div class="text-sm text-brand-700 font-medium">Output VAT Collected</div>
+            <div class="text-3xl font-bold text-brand-700 mt-1" x-text="formatCurrency(data?.output_vat)"></div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-500 font-medium">Net Sales (Excluding VAT)</div>
+            <div class="text-xl font-semibold text-slate-700" x-text="formatCurrency(data?.net_sales)"></div>
+          </div>
+          <div>
+            <div class="text-sm text-gray-500 font-medium">Total Transactions</div>
+            <div class="text-xl font-semibold text-slate-700" x-text="data?.transaction_count"></div>
+          </div>
+        </div>
+        <div class="bg-blue-50 text-blue-800 text-sm p-4 rounded-lg flex gap-3">
+          <i data-lucide="info" class="w-5 h-5 flex-shrink-0"></i>
+          <p>This shows Output VAT only. To calculate your final ZRA liability, you must subtract your Input VAT (from Supplier Purchases).</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+function reportsApp() {
+  return {
+    tabs: [
+      { id: 'trial', label: 'Trial Balance' },
+      { id: 'balance', label: 'Balance Sheet' },
+      { id: 'income', label: 'Income Statement' },
+      { id: 'cash_flow', label: 'Cash Flow' },
+      { id: 'category', label: 'Sales by Category' },
+      { id: 'zra', label: 'ZRA VAT Return' },
+    ],
+    tab: 'trial', data: null, loading: false,
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+
+    async load(tabId) {
+      if (!requireAuth()) return;
+      this.tab = tabId;
+      this.fetchData();
+    },
+
+    async loadCustom() {
+      this.fetchData();
+    },
+
+    async fetchData() {
+      this.loading = true;
+      this.data = null;
+      
+      let endpoint = '';
+      const params = `?start_date=${this.startDate}&end_date=${this.endDate}`;
+
+      if (this.tab === 'trial') endpoint = '/accounting/reports/trial-balance/';
+      if (this.tab === 'balance') endpoint = '/accounting/reports/balance-sheet/';
+      if (this.tab === 'income') endpoint = '/accounting/reports/income-statement/';
+      if (this.tab === 'cash_flow') endpoint = '/reports/cash-flow/';
+      if (this.tab === 'category') endpoint = '/reports/sales-by-category/';
+      if (this.tab === 'zra') endpoint = '/reports/zra-tax/';
+
+      try {
+        // Append params to accounting endpoints if they support it
+        const url = (this.tab === 'cash_flow' || this.tab === 'category' || this.tab === 'zra') ? endpoint + params : endpoint;
+        this.data = await apiFetch(url);
+      } catch (e) {
+        alert('Error loading report: ' + e.message);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+
+    async printReport() {
+      if (!this.data) { alert('No data to print'); return; }
+      
+      // Fetch company details for the header
+      let company = { name: 'Nimbus POS', address: '', phone: '', logo_url: null };
+      try {
+        const c = await apiFetch('/auth/company/');
+        company = c;
+      } catch(e) { console.error("Could not load company details", e); }
+
+      let tableHtml = '';
+      
+      if (this.tab === 'trial') {
+        tableHtml = `
+          <h2>Trial Balance</h2>
+          <table><thead><tr><th>Code</th><th>Account</th><th class="right">Debit</th><th class="right">Credit</th></tr></thead>
+          <tbody>
+            ${this.data.accounts.map(a => `<tr><td>${a.code}</td><td>${a.name}</td><td class="right">${a.debit > 0 ? formatCurrency(a.debit) : '-'}</td><td class="right">${a.credit > 0 ? formatCurrency(a.credit) : '-'}</td></tr>`).join('')}
+            <tr class="total-row"><td colspan="2">TOTALS</td><td class="right">${formatCurrency(this.data.total_debit)}</td><td class="right">${formatCurrency(this.data.total_credit)}</td></tr>
+          </tbody></table>
+        `;
+      } else if (this.tab === 'balance') {
+        tableHtml = `
+          <h2>Balance Sheet</h2>
+          <div class="section">
+            <h3>Assets: ${formatCurrency(this.data.assets)}</h3>
+            <h3>Liabilities: ${formatCurrency(this.data.liabilities)}</h3>
+            <h3>Equity: ${formatCurrency(this.data.equity)}</h3>
+            <h3>Net Income: ${formatCurrency(this.data.net_income)}</h3>
+          </div>
+        `;
+      } else if (this.tab === 'income') {
+        tableHtml = `
+          <h2>Income Statement</h2>
+          <div class="section">
+            <p><strong>Revenue:</strong> ${formatCurrency(this.data.revenue)}</p>
+            <p><strong>Expenses:</strong> ${formatCurrency(this.data.expenses)}</p>
+            <h3 class="total-row">Net Income: ${formatCurrency(this.data.net_income)}</h3>
+          </div>
+        `;
+      } else if (this.tab === 'cash_flow') {
+        tableHtml = `
+          <h2>Cash Flow Statement</h2>
+          <div class="section">
+            <p><strong>Inflows:</strong> ${formatCurrency(this.data.inflows)}</p>
+            <p><strong>Outflows:</strong> ${formatCurrency(this.data.outflows)}</p>
+            <h3 class="total-row">Net Cash Flow: ${formatCurrency(this.data.net_cash_flow)}</h3>
+          </div>
+        `;
+      } else if (this.tab === 'category') {
+        tableHtml = `
+          <h2>Sales by Category</h2>
+          <table><thead><tr><th>Category</th><th class="right">Qty</th><th class="right">Revenue</th></tr></thead>
+          <tbody>
+            ${this.data.map(c => `<tr><td>${c.category}</td><td class="right">${c.qty}</td><td class="right">${formatCurrency(c.revenue)}</td></tr>`).join('')}
+          </tbody></table>
+        `;
+      } else if (this.tab === 'zra') {
+        tableHtml = `
+          <h2>ZRA VAT Return Summary</h2>
+          <div class="section">
+            <p><strong>Gross Sales (VAT Inclusive):</strong> ${formatCurrency(this.data.gross_sales)}</p>
+            <p><strong>Output VAT Collected:</strong> ${formatCurrency(this.data.output_vat)}</p>
+            <p><strong>Net Sales (Excluding VAT):</strong> ${formatCurrency(this.data.net_sales)}</p>
+            <p><strong>Total Transactions:</strong> ${this.data.transaction_count}</p>
+          </div>
+        `;
+      }
+
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Financial Report - ${company.name}</title>
+            <style>
+              body { font-family: 'Arial', sans-serif; padding: 40px; color: #333; }
+              .header { text-align: center; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
+              .logo { max-height: 80px; margin-bottom: 10px; }
+              .company-name { font-size: 24px; font-weight: bold; color: #4f46e5; margin: 0; }
+              .company-details { font-size: 14px; color: #666; margin-top: 5px; }
+              h2 { font-size: 20px; border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 20px; }
+              table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+              th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+              th { background-color: #f9fafb; font-weight: bold; }
+              .right { text-align: right; }
+              .total-row { font-weight: bold; font-size: 16px; border-top: 2px solid #333; }
+              .section p { margin: 10px 0; font-size: 16px; }
+              .footer { text-align: center; font-size: 12px; color: #999; margin-top: 50px; border-top: 1px solid #eee; padding-top: 10px; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              ${company.logo_url ? `<img src="${window.location.origin}${company.logo_url}" class="logo">` : ''}
+              <h1 class="company-name">${company.name}</h1>
+              <div class="company-details">${company.address || ''}</div>
+              <div class="company-details">TPIN: ${company.tpin || ''} | Phone: ${company.phone || ''}</div>
+            </div>
+            
+            <div style="text-align: right; font-size: 14px; margin-bottom: 20px;">
+              <strong>Period:</strong> ${this.startDate} to ${this.endDate}<br>
+              <strong>Generated:</strong> ${new Date().toLocaleString()}
+            </div>
+
+            ${tableHtml}
+
+            <div class="footer">
+              Generated by Nimbus POS
+            </div>
+            <script>
+              window.onload = () => { window.print(); setTimeout(() => window.close(), 100); };
+            <\/script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    },
+
+    exportCsv(filename, rows) {
+      if (!rows || rows.length === 0) { alert('No data to export'); return; }
+      const headers = Object.keys(rows[0]);
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(r => headers.map(h => `"${r[h]}"`).join(','))
+      ].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${filename}_${this.startDate}_to_${this.endDate}.csv`;
+      a.click();
+    }
+  }
+}
+</script>
+{% endblock %}

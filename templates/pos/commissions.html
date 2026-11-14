@@ -1,0 +1,149 @@
+{% extends "pos/base.html" %}
+{% block title %}Commissions{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="commissionsApp()" x-init="load()">
+    
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Sales Targets & Commissions</h1>
+        <p class="text-gray-500 text-sm mt-1">Track agent performance and calculate payroll.</p>
+      </div>
+      
+      <div class="flex gap-2">
+        <select x-model="month" @change="load()" class="input-field w-32 bg-white">
+          <template x-for="(m, index) in months" :key="index">
+            <option :value="index + 1" x-text="m"></option>
+          </template>
+        </select>
+        <select x-model="year" @change="load()" class="input-field w-32 bg-white">
+          <template x-for="y in [2024, 2025, 2026, 2027]" :key="y">
+            <option :value="y" x-text="y"></option>
+          </template>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <template x-for="agent in data" :key="agent.agent_id">
+        <div class="card p-6 border-t-4 border-brand-500">
+          <div class="flex justify-between items-start mb-4">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center font-bold text-lg">
+                <span x-text="agent.agent_name.charAt(0).toUpperCase()"></span>
+              </div>
+              <div>
+                <div class="font-bold text-slate-800" x-text="agent.agent_name"></div>
+                <div class="text-xs text-gray-500">Sales Agent</div>
+              </div>
+            </div>
+            <button @click="openEditModal(agent)" class="text-gray-400 hover:text-brand-600">
+              <i data-lucide="settings" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Progress Bar -->
+          <div class="mb-2 flex justify-between text-sm">
+            <span class="text-gray-500">Target Progress</span>
+            <span class="font-bold" x-text="agent.progress + '%'"></span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2.5 mb-6">
+            <div class="bg-brand-600 h-2.5 rounded-full transition-all duration-500" :style="`width: ${agent.progress}%`"></div>
+          </div>
+
+          <!-- Financials -->
+          <div class="space-y-3 text-sm">
+            <div class="flex justify-between">
+              <span class="text-gray-500">Actual Sales:</span>
+              <span class="font-bold text-slate-800" x-text="formatCurrency(agent.actual_sales)"></span>
+            </div>
+            <div class="flex justify-between border-b pb-3">
+              <span class="text-gray-500">Target Amount:</span>
+              <span class="font-bold text-slate-800" x-text="formatCurrency(agent.target_amount)"></span>
+            </div>
+            <div class="flex justify-between pt-1">
+              <span class="text-gray-500">Commission Rate:</span>
+              <span class="font-bold" x-text="agent.commission_rate + '%'"></span>
+            </div>
+            <div class="flex justify-between bg-green-50 p-2 rounded border border-green-100">
+              <span class="text-green-800 font-medium">Commission Payout:</span>
+              <span class="font-bold text-green-700" x-text="formatCurrency(agent.commission_earned)"></span>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Edit Target Modal -->
+    <template x-if="editModal">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6">
+          <h2 class="text-xl font-bold mb-4" x-text="'Set Target for ' + form.agent_name"></h2>
+          <form @submit.prevent="saveTarget()" class="space-y-4">
+            <div>
+              <label class="block text-sm mb-1">Monthly Target (K)</label>
+              <input type="number" step="100" x-model="form.target_amount" class="input-field font-bold" required>
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Commission Rate (%)</label>
+              <input type="number" step="0.1" x-model="form.commission_rate" class="input-field font-bold" required>
+              <p class="text-xs text-gray-500 mt-1">e.g. 2.5 for 2.5% of total sales</p>
+            </div>
+            <div class="flex gap-2 pt-2">
+              <button type="button" @click="editModal = false" class="btn-secondary flex-1">Cancel</button>
+              <button type="submit" class="btn-primary flex-1">Save Target</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </template>
+
+  </div>
+</div>
+<script>
+function commissionsApp() {
+  return {
+    data: [], month: new Date().getMonth() + 1, year: new Date().getFullYear(),
+    months: ['January','February','March','April','May','June','July','August','September','October','November','December'],
+    editModal: false,
+    form: { agent_id: null, agent_name: '', target_amount: 0, commission_rate: 2.0 },
+
+    async load() {
+      if (!requireAuth()) return;
+      try {
+        this.data = await apiFetch(`/sales/agent-targets/?month=${this.month}&year=${this.year}`);
+        setTimeout(() => { lucide.createIcons(); }, 50);
+      } catch(e) { alert(e.message); }
+    },
+
+    openEditModal(agent) {
+      this.form = { 
+        agent_id: agent.agent_id, 
+        agent_name: agent.agent_name, 
+        target_amount: agent.target_amount || 0,
+        commission_rate: agent.commission_rate || 2.0
+      };
+      this.editModal = true;
+    },
+
+    async saveTarget() {
+      try {
+        await apiFetch('/sales/agent-targets/', {
+          method: 'POST',
+          body: JSON.stringify({
+            agent_id: this.form.agent_id,
+            month: this.month,
+            year: this.year,
+            target_amount: this.form.target_amount,
+            commission_rate: this.form.commission_rate
+          })
+        });
+        this.editModal = false;
+        this.load();
+      } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

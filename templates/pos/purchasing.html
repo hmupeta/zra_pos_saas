@@ -1,0 +1,306 @@
+{% extends "pos/base.html" %}
+{% block title %}Purchasing & Suppliers{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="purchasingApp()" x-init="load()">
+    
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Purchasing & Accounts Payable</h1>
+      <div class="flex gap-2">
+        <button @click="showSupplierModal = true" class="btn-secondary">+ Add Supplier</button>
+        <button @click="showInvoiceModal = true" class="btn-primary">+ Record Bill</button>
+      </div>
+    </div>
+
+    
+    <!-- Purchase Orders Section -->
+    <div class="card p-6 mb-6">
+      <div class="flex justify-between items-center mb-4 border-b pb-4">
+        <h2 class="text-lg font-bold">Purchase Orders (Stock Orders)</h2>
+        <button @click="showPoModal = true" class="btn-primary text-sm">+ Create Purchase Order</button>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-left text-xs uppercase">
+          <tr><th class="p-2">PO #</th><th class="p-2">Supplier</th><th class="p-2">Date</th><th class="p-2">Total</th><th class="p-2 text-center">Status</th><th class="p-2 text-right">Action</th></tr>
+        </thead>
+        <tbody>
+          <template x-for="po in pos" :key="po.id">
+            <tr class="border-t hover:bg-gray-50 cursor-pointer" @click="viewPo(po)">
+              <td class="p-2 font-mono text-xs" x-text="po.po_number"></td>
+              <td class="p-2 font-medium" x-text="po.supplier"></td>
+              <td class="p-2 text-gray-500" x-text="po.date"></td>
+              <td class="p-2 font-bold" x-text="formatCurrency(po.total)"></td>
+              <td class="p-2 text-center">
+                <span class="px-2 py-0.5 rounded text-xs" :class="po.status === 'DRAFT' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'" x-text="po.status"></span>
+              </td>
+              <td class="p-2 text-right">
+                <button @click.stop="viewPo(po)" class="text-brand-600 hover:underline text-xs">View</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <!-- Suppliers List -->
+      <div class="card p-6">
+        <h2 class="font-bold text-lg mb-4">Suppliers</h2>
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-left text-xs uppercase">
+            <tr><th class="pb-2">Name</th><th class="pb-2">Phone</th><th class="pb-2 text-right">Balance</th><th class="pb-2 text-right">Action</th></tr>
+          </thead>
+          <tbody>
+            <template x-for="s in suppliers" :key="s.id">
+              <tr class="border-t">
+                <td class="py-2 font-medium" x-text="s.name"></td>
+                <td class="py-2 text-gray-500" x-text="s.phone"></td>
+                <td class="py-2 text-right font-bold" :class="s.balance > 0 ? 'text-red-600' : 'text-green-600'" x-text="formatCurrency(s.balance)"></td>
+                <td class="py-2 text-right">
+                  <button @click="openPayModal(s)" class="text-xs text-brand-600 hover:underline">Pay</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Recent Bills -->
+      <div class="card p-6">
+        <h2 class="font-bold text-lg mb-4">Recent Bills</h2>
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-left text-xs uppercase">
+            <tr><th class="pb-2">Supplier</th><th class="pb-2">Inv #</th><th class="pb-2 text-right">Total</th><th class="pb-2 text-center">Status</th></tr>
+          </thead>
+          <tbody>
+            <template x-for="i in invoices" :key="i.id">
+              <tr class="border-t">
+                <td class="py-2 font-medium" x-text="i.supplier"></td>
+                <td class="py-2 text-gray-500" x-text="i.invoice_number"></td>
+                <td class="py-2 text-right" x-text="formatCurrency(i.total)"></td>
+                <td class="py-2 text-center">
+                  <span class="px-2 py-0.5 rounded text-xs" :class="i.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" x-text="i.status"></span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Modals -->
+    <template x-if="showSupplierModal">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6">
+          <h2 class="text-xl font-bold mb-4">New Supplier</h2>
+          <form @submit.prevent="createSupplier()" class="space-y-3">
+            <input placeholder="Supplier Name" x-model="supplierForm.name" class="input-field" required>
+            <input placeholder="Phone" x-model="supplierForm.phone" class="input-field">
+            <input type="number" step="0.01" placeholder="Opening Balance (Owed)" x-model="supplierForm.opening_balance" class="input-field">
+            <button type="submit" class="btn-primary w-full">Save Supplier</button>
+          </form>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="showInvoiceModal">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6">
+          <h2 class="text-xl font-bold mb-4">Record Supplier Bill</h2>
+          <form @submit.prevent="createInvoice()" class="space-y-3">
+            <select x-model="invoiceForm.supplier_id" class="input-field" required>
+              <option value="">Select Supplier...</option>
+              <template x-for="s in suppliers" :key="s.id">
+                <option :value="s.id" x-text="s.name"></option>
+              </template>
+            </select>
+            <input placeholder="Invoice Number" x-model="invoiceForm.invoice_number" class="input-field" required>
+            <input type="number" step="0.01" placeholder="Total Amount" x-model="invoiceForm.total" class="input-field" required>
+            <p class="text-xs text-gray-500">This will increase your stock value and accounts payable.</p>
+            <button type="submit" class="btn-primary w-full">Save Bill</button>
+          </form>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="payModal">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6">
+          <h2 class="text-xl font-bold mb-4" x-text="'Pay ' + payForm.supplier_name"></h2>
+          <form @submit.prevent="submitPayment()" class="space-y-3">
+            <input type="number" step="0.01" placeholder="Amount to Pay" x-model="payForm.amount" class="input-field" required>
+            <select x-model="payForm.method" class="input-field">
+              <option value="BANK">Bank Transfer</option>
+              <option value="CASH">Cash</option>
+            </select>
+            <button type="submit" class="btn-primary w-full">Record Payment</button>
+          </form>
+        </div>
+      </div>
+    </template>
+
+
+    <!-- View PO Modal -->
+    <template x-if="selectedPo">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-2xl w-full p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold" x-text="'PO: ' + selectedPo.po_number"></h2>
+            <button @click="selectedPo = null" class="text-gray-500 hover:text-gray-800">✕</button>
+          </div>
+          
+          <div class="flex justify-between mb-4 bg-gray-50 p-3 rounded">
+            <div><span class="text-gray-500 text-sm">Supplier:</span> <span class="font-bold" x-text="selectedPo.supplier"></span></div>
+            <div><span class="text-gray-500 text-sm">Total:</span> <span class="font-bold" x-text="formatCurrency(selectedPo.total)"></span></div>
+            <div><span class="text-gray-500 text-sm">Status:</span> <span class="font-bold" x-text="selectedPo.status"></span></div>
+          </div>
+
+          <table class="w-full text-sm mb-6">
+            <thead class="bg-gray-100 text-left text-xs uppercase">
+              <tr><th class="p-2">Product</th><th class="p-2 text-right">Qty</th><th class="p-2 text-right">Cost</th><th class="p-2 text-right">Total</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="item in selectedPo.items" :key="item.id">
+                <tr class="border-t">
+                  <td class="p-2" x-text="item.product"></td>
+                  <td class="p-2 text-right" x-text="item.quantity"></td>
+                  <td class="p-2 text-right" x-text="formatCurrency(item.unit_cost)"></td>
+                  <td class="p-2 text-right font-bold" x-text="formatCurrency(item.quantity * item.unit_cost)"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
+          <div class="flex justify-end" x-show="selectedPo.status === 'DRAFT'">
+            <button @click="receivePo(selectedPo.id)" class="btn-primary bg-green-600 hover:bg-green-700">Receive Goods & Update Stock</button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Create PO Modal -->
+    <template x-if="showPoModal">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+          <h2 class="text-xl font-bold mb-4">New Purchase Order</h2>
+          <form @submit.prevent="createPo()" class="space-y-4">
+            <select x-model="poForm.supplier_id" class="input-field" required>
+              <option value="">Select Supplier...</option>
+              <template x-for="s in suppliers" :key="s.id">
+                <option :value="s.id" x-text="s.name"></option>
+              </template>
+            </select>
+
+            <table class="w-full text-sm">
+              <thead><tr><th class="text-left pb-2">Product</th><th class="text-right pb-2">Qty</th><th class="text-right pb-2">Unit Cost</th></tr></thead>
+              <tbody>
+                <template x-for="(line, idx) in poForm.lines" :key="idx">
+                  <tr>
+                    <td class="pr-2">
+                      <select x-model="line.product_id" class="input-field" required>
+                        <option value="">Select...</option>
+                        <template x-for="p in products" :key="p.id">
+                          <option :value="p.id" x-text="p.name"></option>
+                        </template>
+                      </select>
+                    </td>
+                    <td class="pr-2"><input type="number" x-model="line.quantity" class="input-field text-right" required></td>
+                    <td><input type="number" step="0.01" x-model="line.unit_cost" class="input-field text-right" required></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <button type="button" @click="poForm.lines.push({product_id:'', quantity:'', unit_cost:''})" class="text-sm text-brand-600 mb-4 hover:underline">+ Add Line</button>
+
+            <div class="flex justify-end gap-2 border-t pt-4">
+              <button type="button" @click="showPoModal = false" class="btn-secondary">Cancel</button>
+              <button type="submit" class="btn-primary">Create PO</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </template>
+
+  </div>
+</div>
+<script>
+function purchasingApp() {
+  return {
+    suppliers: [], invoices: [], pos: [], products: [], selectedPo: null, showPoModal: false,
+    poForm: { supplier_id: '', lines: [{product_id:'', quantity:'', unit_cost:''}] },
+    showSupplierModal: false, showInvoiceModal: false, payModal: false,
+    supplierForm: { name: '', phone: '', opening_balance: 0 },
+    invoiceForm: { supplier_id: '', invoice_number: '', total: '' },
+    payForm: { supplier_id: '', supplier_name: '', amount: '', method: 'BANK' },
+
+
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      try {
+        this.suppliers = await apiFetch('/purchasing/suppliers/');
+        this.invoices = await apiFetch('/purchasing/invoices/');
+        this.pos = await apiFetch('/purchasing/po/');
+        this.products = await apiFetch('/inventory/products/');
+      } catch(e) { alert(e.message); }
+    },
+
+    async createPo() {
+      try {
+        await apiFetch('/purchasing/po/', { method: 'POST', body: JSON.stringify(this.poForm) });
+        this.showPoModal = false;
+        this.poForm = { supplier_id: '', lines: [{product_id:'', quantity:'', unit_cost:''}] };
+        this.load();
+      } catch(e) { alert(e.response?.data?.error || e.message); }
+    },
+
+    async viewPo(po) {
+      try { this.selectedPo = await apiFetch(`/purchasing/po/${po.id}/`); } catch(e) { alert(e.message); }
+    },
+
+    async receivePo(id) {
+      if (!confirm('Are you sure you received these goods? This will update inventory.')) return;
+      try {
+        await apiFetch(`/purchasing/po/${id}/receive/`, { method: 'POST' });
+        alert('Goods received and stock updated!');
+        this.selectedPo = null;
+        this.load();
+      } catch(e) { alert(e.message); }
+    },
+
+
+    async createSupplier() {
+      try {
+        await apiFetch('/purchasing/suppliers/', { method: 'POST', body: JSON.stringify(this.supplierForm) });
+        this.showSupplierModal = false;
+        this.supplierForm = { name: '', phone: '', opening_balance: 0 };
+        this.load();
+      } catch(e) { alert(e.message); }
+    },
+
+    async createInvoice() {
+      try {
+        await apiFetch('/purchasing/invoices/create/', { method: 'POST', body: JSON.stringify(this.invoiceForm) });
+        this.showInvoiceModal = false;
+        this.invoiceForm = { supplier_id: '', invoice_number: '', total: '' };
+        this.load();
+      } catch(e) { alert(e.message); }
+    },
+
+    openPayModal(s) {
+      this.payForm = { supplier_id: s.id, supplier_name: s.name, amount: s.balance, method: 'BANK' };
+      this.payModal = true;
+    },
+
+    async submitPayment() {
+      try {
+        await apiFetch('/purchasing/pay/', { method: 'POST', body: JSON.stringify(this.payForm) });
+        this.payModal = false;
+        this.load();
+      } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,75 @@
+{% extends "pos/base.html" %}
+{% block title %}Tenants - Platform Admin{% endblock %}
+{% block body %}
+<div class="h-screen flex bg-slate-50">
+  <aside class="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-2xl z-20">
+    <div class="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-950/50">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center text-white shadow-lg"><i data-lucide="shield" class="w-5 h-5"></i></div>
+        <div><div class="font-bold text-white tracking-wide text-lg">Nimbus HQ</div><div class="text-[10px] text-slate-400 uppercase tracking-wider">Platform Admin</div></div>
+      </div>
+    </div>
+    <nav class="flex-1 py-6 px-4 space-y-1">
+      <a href="/platform" class="nav-link"><i data-lucide="layout-dashboard" class="w-4 h-4 mr-3"></i> Overview</a>
+      <a href="/platform/tenants" class="nav-link active"><i data-lucide="building" class="w-4 h-4 mr-3"></i> Tenants</a>
+      <a href="/platform/applications" class="nav-link"><i data-lucide="file-text" class="w-4 h-4 mr-3"></i> Applications</a>
+    </nav>
+  </aside>
+
+  <div class="flex-1 overflow-y-auto p-8" x-data="tenantsPage()" x-init="load()">
+    <div class="flex justify-between items-center mb-8">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Active Tenants</h1>
+        <p class="text-slate-500 mt-1">Manage all businesses on the platform.</p>
+      </div>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+          <tr>
+            <th class="px-6 py-4">Business</th>
+            <th class="px-6 py-4">Plan</th>
+            <th class="px-6 py-4">Status</th>
+            <th class="px-6 py-4 text-center">Branches</th>
+            <th class="px-6 py-4 text-center">Users</th>
+            <th class="px-6 py-4 text-right">MRR</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="t in tenants" :key="t.id">
+            <tr class="border-t hover:bg-gray-50">
+              <td class="px-6 py-4">
+                <div class="font-bold text-slate-900" x-text="t.name"></div>
+                <div class="text-xs text-gray-500" x-text="t.contact_email"></div>
+              </td>
+              <td class="px-6 py-4 font-medium" x-text="t.plan || 'Trial'"></td>
+              <td class="px-6 py-4">
+                <span class="px-2 py-1 rounded text-xs font-bold" 
+                      :class="t.subscription_status === 'ACTIVE' ? 'bg-green-100 text-green-700' : t.subscription_status === 'TRIAL' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'" 
+                      x-text="t.subscription_status"></span>
+              </td>
+              <td class="px-6 py-4 text-center font-medium" x-text="t.branches_count"></td>
+              <td class="px-6 py-4 text-center font-medium" x-text="t.users_count"></td>
+              <td class="px-6 py-4 text-right font-bold text-green-600" x-text="formatCurrency(t.monthly_price)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="tenants.length === 0" class="p-8 text-center text-gray-400">No tenants found.</div>
+    </div>
+  </div>
+</div>
+<script>
+function tenantsPage() {
+  return {
+    tenants: [],
+    async load() {
+      if (!requireAuth()) return;
+      if (getUser()?.user_type !== 'PLATFORM_ADMIN') { location.href = '/pos'; return; }
+      try { this.tenants = await apiFetch('/saas/admin/tenants/'); } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

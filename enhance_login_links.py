@@ -1,0 +1,186 @@
+import os
+from pathlib import Path
+
+BACKEND_PATH = Path(__file__).resolve().parent
+
+# ============================================================
+# 1. Update login.html
+# ============================================================
+login_path = BACKEND_PATH / "templates" / "pos" / "login.html"
+login_html = '''
+{% extends "pos/base.html" %}
+{% block title %}Nimbus POS Login{% endblock %}
+{% block body %}
+<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-indigo-100 p-4 relative overflow-hidden">
+  <!-- Decorative background -->
+  <div class="absolute top-0 left-0 w-full h-full bg-grid opacity-30 -z-10"></div>
+
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 relative" x-data="loginForm()">
+    
+    <!-- Back to Home -->
+    <div class="absolute top-6 left-6">
+      <a href="/welcome" class="text-sm font-medium text-gray-500 hover:text-brand-600 transition flex items-center gap-1">
+        <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
+      </a>
+    </div>
+
+    <div class="text-center mb-8 mt-4">
+      <div class="w-12 h-12 bg-brand-600 text-white rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-200">
+        <i data-lucide="zap" class="w-6 h-6"></i>
+      </div>
+      <h1 class="text-2xl font-bold text-slate-900">Nimbus POS Login</h1>
+      <p class="text-gray-500 mt-1 text-sm">Sign in to your store</p>
+    </div>
+
+    <form @submit.prevent="submit()" class="space-y-5">
+      <div>
+        <label class="block text-sm font-medium mb-1 text-gray-700">Username</label>
+        <input type="text" x-model="username" class="input-field" required autofocus>
+      </div>
+      
+      <div>
+        <div class="flex justify-between items-center mb-1">
+          <label class="block text-sm font-medium text-gray-700">Password</label>
+          <button type="button" @click="showForgot = true" class="text-xs font-medium text-brand-600 hover:text-brand-700">Forgot password?</button>
+        </div>
+        <input type="password" x-model="password" class="input-field" required>
+      </div>
+
+      <p x-show="error" x-text="error" class="text-sm text-red-600 bg-red-50 p-2 rounded"></p>
+      
+      <button type="submit" :disabled="loading" class="btn-primary w-full py-3 mt-2">
+        <span x-show="!loading">Sign In</span>
+        <span x-show="loading">Signing in...</span>
+      </button>
+    </form>
+
+    <div class="mt-8 text-center text-sm text-gray-600 border-t pt-6">
+      Don't have an account? <a href="/welcome?signup=true" class="font-bold text-brand-600 hover:underline">Register here</a>
+    </div>
+
+    <p class="text-[10px] text-gray-400 text-center mt-6">
+      Demo: <code>demo_owner</code> / <code>Demo@123456</code> &middot; Admin: <code>admin</code> / <code>Admin@123456</code>
+    </p>
+
+    <!-- Forgot Password Modal -->
+    <div x-show="showForgot" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-xl max-w-sm w-full p-6 text-left" @click.away="showForgot = false">
+        <h2 class="text-xl font-bold mb-2">Reset Password</h2>
+        
+        <div x-show="!forgotSuccess">
+          <p class="text-sm text-gray-500 mb-4">Enter your email address and we'll send you a link to reset your password.</p>
+          <form @submit.prevent="submitForgot()" class="space-y-4">
+            <input type="email" placeholder="Email address" x-model="resetEmail" class="input-field" required>
+            <div class="flex gap-2">
+              <button type="button" @click="showForgot = false" class="btn-secondary flex-1">Cancel</button>
+              <button type="submit" class="btn-primary flex-1" :disabled="resetLoading">
+                <span x-text="resetLoading ? 'Sending...' : 'Send Link'"></span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div x-show="forgotSuccess" class="text-center py-4">
+          <div class="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+            <i data-lucide="check" class="w-6 h-6"></i>
+          </div>
+          <p class="text-sm text-gray-700 font-medium">If an account exists for that email, a reset link has been sent.</p>
+          <button @click="showForgot = false" class="btn-secondary w-full mt-4">Close</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function loginForm() {
+  return {
+    username: '', password: '', loading: false, error: '',
+    showForgot: false, resetEmail: '', resetLoading: false, forgotSuccess: false,
+
+    async submit() {
+      this.loading = true; this.error = '';
+      try {
+        const res = await apiFetch('/auth/login/', {
+          method: 'POST',
+          body: JSON.stringify({ username: this.username, password: this.password }),
+        });
+        localStorage.setItem('token', res.token);
+        localStorage.setItem('user', JSON.stringify(res.user));
+        if (res.tenant) localStorage.setItem('tenant', res.tenant);
+
+        if (res.user.user_type === 'PLATFORM_ADMIN') {
+          location.href = '/admin';
+          return;
+        }
+
+        const branches = await apiFetch('/auth/branches/');
+        if (branches.length === 0) {
+          this.error = 'No branches assigned. Contact your administrator.';
+          return;
+        }
+        if (branches.length === 1) {
+          localStorage.setItem('branchId', branches[0].id);
+          location.href = '/pos';
+        } else {
+          location.href = '/select-branch';
+        }
+      } catch (e) {
+        this.error = e.response?.data?.error || 'Login failed';
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async submitForgot() {
+      this.resetLoading = true;
+      // Simulate API call for now
+      setTimeout(() => {
+        this.resetLoading = false;
+        this.forgotSuccess = true;
+      }, 1000);
+    }
+  }
+}
+</script>
+{% endblock %}
+'''
+login_path.write_text(login_html.strip(), encoding="utf-8")
+print("✅ Updated login.html with Back, Forgot Password, and Register links")
+
+# ============================================================
+# 2. Update landing.html to auto-open signup modal via URL param
+# ============================================================
+landing_path = BACKEND_PATH / "templates" / "pos" / "landing.html"
+l_content = landing_path.read_text(encoding="utf-8")
+
+# Update the Alpine.js initialization
+old_js = '''    function landingApp() {
+      return {
+        showSignup: false,
+        loading: false,
+        success: false,'''
+
+new_js = '''    function landingApp() {
+      return {
+        showSignup: false,
+        loading: false,
+        success: false,
+        init() {
+          // Check if URL has ?signup=true to auto-open modal
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.has('signup') || window.location.hash === '#signup') {
+            this.showSignup = true;
+          }
+        },'''
+
+l_content = l_content.replace(old_js, new_js)
+
+# Make sure Alpine calls init()
+l_content = l_content.replace('<body class="text-slate-800 antialiased bg-white" x-data="landingApp()">', '<body class="text-slate-800 antialiased bg-white" x-data="landingApp()" x-init="init()">')
+
+landing_path.write_text(l_content, encoding="utf-8")
+print("✅ Updated landing.html to auto-open signup from login link")
+
+print("\n🎉 Done! Restart the server and test the new login flow.")

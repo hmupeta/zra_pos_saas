@@ -1,0 +1,243 @@
+import os
+from pathlib import Path
+
+BACKEND_PATH = Path(__file__).resolve().parent
+html_path = BACKEND_PATH / "templates" / "pos" / "shifts.html"
+
+full_html = '''
+{% extends "pos/base.html" %}
+{% block title %}Shift History{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="shiftsApp()" x-init="load()">
+    
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Shift History</h1>
+        <p class="text-gray-500 text-sm mt-1">View cashier Z-reports and cash drawer reconciliation.</p>
+      </div>
+      <button @click="load()" class="btn-secondary flex items-center gap-2">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Refresh
+      </button>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+          <tr>
+            <th class="px-4 py-3">Cashier</th>
+            <th class="px-4 py-3">Date Opened</th>
+            <th class="px-4 py-3">Time Closed</th>
+            <th class="px-4 py-3 text-right font-bold text-brand-700">Total Sales</th>
+            <th class="px-4 py-3 text-right text-green-600">Cash Sales</th>
+            <th class="px-4 py-3 text-right text-yellow-600">MoMo Sales</th>
+            <th class="px-4 py-3 text-right border-l">Expected Cash</th>
+            <th class="px-4 py-3 text-right">Actual Cash</th>
+            <th class="px-4 py-3 text-right">Variance</th>
+            <th class="px-4 py-3 text-center">Status</th>
+            <th class="px-4 py-3 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="s in shifts" :key="s.id">
+            <tr class="border-t hover:bg-gray-50">
+              <td class="px-4 py-3 font-medium text-slate-800" x-text="s.cashier"></td>
+              <td class="px-4 py-3 text-gray-500" x-text="s.opening_time"></td>
+              <td class="px-4 py-3 text-gray-500" x-text="s.closing_time"></td>
+              
+              <!-- Sales Breakdown -->
+              <td class="px-4 py-3 text-right font-bold text-brand-700" x-text="formatCurrency(s.total_sales)"></td>
+              <td class="px-4 py-3 text-right font-medium text-green-700" x-text="formatCurrency(s.cash_sales)"></td>
+              <td class="px-4 py-3 text-right font-medium text-yellow-600" x-text="formatCurrency(s.momo_sales)"></td>
+              
+              <!-- Cash Reconciliation -->
+              <td class="px-4 py-3 text-right border-l" x-text="formatCurrency(s.expected_cash)"></td>
+              <td class="px-4 py-3 text-right font-bold" x-text="s.is_closed ? formatCurrency(s.actual_cash) : '-'"></td>
+              <td class="px-4 py-3 text-right font-bold" 
+                  :class="s.variance < 0 ? 'text-red-600' : s.variance > 0 ? 'text-green-600' : 'text-gray-400'" 
+                  x-text="s.is_closed ? formatCurrency(s.variance) : '-'"></td>
+              
+              <td class="px-4 py-3 text-center">
+                <span class="px-2 py-0.5 rounded text-xs font-medium" 
+                      :class="s.is_closed ? 'bg-gray-100 text-gray-600' : 'bg-green-100 text-green-700 animate-pulse'" 
+                      x-text="s.is_closed ? 'Closed' : 'Active'"></span>
+              </td>
+              <td class="px-4 py-3 text-right space-x-2">
+                <button @click="viewDetails(s.id)" class="text-brand-600 hover:underline text-xs font-medium">View</button>
+                <button x-show="s.is_closed" @click="openReconcile(s)" class="text-orange-600 hover:underline text-xs font-medium">Reconcile</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="shifts.length === 0" class="p-8 text-center text-gray-400">No shifts found.</div>
+    </div>
+
+    <!-- View Details Modal -->
+    <template x-if="selectedShift">
+      <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-[9000] p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-xl max-w-3xl w-full p-6 max-h-[90vh] flex flex-col">
+          
+          <div class="flex justify-between items-center mb-6 border-b pb-4">
+            <div>
+              <h2 class="text-xl font-bold">Z-Report: <span x-text="selectedShift.shift.cashier"></span></h2>
+              <p class="text-sm text-gray-500" x-text="selectedShift.shift.opening_time + ' to ' + (selectedShift.shift.closing_time || 'Present')"></p>
+            </div>
+            <button @click="selectedShift = null" class="text-gray-400 hover:text-gray-800"><i data-lucide="x" class="w-6 h-6"></i></button>
+          </div>
+
+          <!-- Sales Breakdown -->
+          <div class="grid grid-cols-3 gap-4 mb-4 bg-gray-50 p-4 rounded-lg border">
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold">Total Sales</div>
+              <div class="font-bold text-xl text-brand-700" x-text="formatCurrency(selectedShift.shift.total_sales)"></div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold">Cash Sales</div>
+              <div class="font-bold text-xl text-green-700" x-text="formatCurrency(selectedShift.shift.cash_sales)"></div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold">Mobile Money Sales</div>
+              <div class="font-bold text-xl text-yellow-600" x-text="formatCurrency(selectedShift.shift.momo_sales)"></div>
+            </div>
+          </div>
+
+          <!-- Cash Reconciliation -->
+          <div class="grid grid-cols-4 gap-4 mb-6 bg-slate-100 p-4 rounded-lg shadow-inner">
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold">Opening Float</div>
+              <div class="font-medium text-slate-700" x-text="formatCurrency(selectedShift.shift.opening_balance)"></div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold">Expected Cash</div>
+              <div class="font-bold text-lg text-slate-800" x-text="formatCurrency(selectedShift.shift.expected_cash)"></div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold">Actual Cash</div>
+              <div class="font-bold text-lg text-slate-800" x-text="formatCurrency(selectedShift.shift.actual_cash)"></div>
+            </div>
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold">Variance</div>
+              <div class="font-bold text-lg" :class="selectedShift.shift.variance < 0 ? 'text-red-600' : selectedShift.shift.variance > 0 ? 'text-green-600' : 'text-gray-500'" x-text="formatCurrency(selectedShift.shift.variance)"></div>
+            </div>
+          </div>
+
+          <!-- Sales List -->
+          <div class="flex-1 overflow-y-auto border rounded-lg">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-100 sticky top-0 text-left text-xs uppercase text-gray-500">
+                <tr><th class="px-4 py-2">Time</th><th class="px-4 py-2">Invoice</th><th class="px-4 py-2">Customer</th><th class="px-4 py-2">Method</th><th class="px-4 py-2 text-right">Total</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="sale in selectedShift.sales" :key="sale.invoice_number">
+                  <tr class="border-t">
+                    <td class="px-4 py-2 text-gray-500" x-text="sale.time"></td>
+                    <td class="px-4 py-2 font-mono text-xs" x-text="sale.invoice_number"></td>
+                    <td class="px-4 py-2" x-text="sale.customer"></td>
+                    <td class="px-4 py-2"><span class="px-2 py-0.5 bg-gray-100 rounded text-xs" x-text="sale.payment_method"></span></td>
+                    <td class="px-4 py-2 text-right font-medium" x-text="formatCurrency(sale.total)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+            <div x-show="selectedShift.sales.length === 0" class="p-6 text-center text-gray-400">No sales during this shift.</div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Reconcile Shift Modal -->
+    <template x-if="reconcileModal">
+      <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl">
+          <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">Reconcile Cash Drawer</h2>
+            <button @click="reconcileModal = null" class="text-gray-400 hover:text-red-500 font-bold text-xl">&times;</button>
+          </div>
+          
+          <div class="bg-gray-50 p-4 rounded-lg mb-4 text-sm border">
+            <div class="flex justify-between mb-1">
+              <span class="text-gray-500">Expected Cash:</span>
+              <span class="font-bold text-slate-800" x-text="formatCurrency(reconcileData.expected_cash)"></span>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">Enter the physical cash you actually counted for this shift.</p>
+          </div>
+
+          <form @submit.prevent="submitReconcile()">
+            <label class="block text-sm font-medium mb-1">Physical Cash Counted (K)</label>
+            <input type="number" step="0.01" x-model="reconcileData.actual_cash" class="input-field text-lg font-bold mb-4" required>
+            
+            <div class="flex gap-2">
+              <button type="button" @click="reconcileModal = null" class="btn-secondary flex-1">Cancel</button>
+              <button type="submit" class="btn-primary flex-1 bg-orange-600 hover:bg-orange-700 text-white" :disabled="reconciling">
+                <span x-show="!reconciling">Update Shift</span>
+                <span x-show="reconciling">Saving...</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </template>
+
+  </div>
+</div>
+
+<script>
+function shiftsApp() {
+  return {
+    shifts: [], 
+    selectedShift: null, 
+    reconcileModal: null, 
+    reconcileData: {}, 
+    reconciling: false,
+
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      try {
+        this.shifts = await apiFetch('/sales/shifts/');
+      } catch(e) { alert(e.message); }
+    },
+
+    async viewDetails(id) {
+      try {
+        this.selectedShift = await apiFetch(`/sales/shifts/${id}/`);
+        setTimeout(() => { lucide.createIcons(); }, 50);
+      } catch(e) { alert(e.message); }
+    },
+
+    openReconcile(shift) {
+      this.reconcileData = { 
+        id: shift.id, 
+        expected_cash: shift.expected_cash, 
+        actual_cash: shift.actual_cash || shift.expected_cash 
+      };
+      this.reconcileModal = true;
+    },
+
+    async submitReconcile() {
+      this.reconciling = true;
+      try {
+        const res = await apiFetch(`/sales/shifts/${this.reconcileData.id}/reconcile/`, {
+          method: 'POST',
+          body: JSON.stringify({ actual_cash: this.reconcileData.actual_cash })
+        });
+        
+        alert(`✅ Shift updated. New variance: ${formatCurrency(res.new_variance)}`);
+        this.reconcileModal = null;
+        this.load(); 
+      } catch(e) {
+        alert(e.response?.data?.error || e.message);
+      } finally {
+        this.reconciling = false;
+      }
+    }
+  }
+}
+</script>
+{% endblock %}
+'''
+
+html_path.write_text(full_html.strip(), encoding="utf-8")
+print("✅ Completely rebuilt shifts.html with working Reconcile functionality.")
+print("🎉 Done! Restart the server and do a HARD REFRESH (Ctrl + Shift + R).")

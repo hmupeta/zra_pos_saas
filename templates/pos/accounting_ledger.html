@@ -1,0 +1,75 @@
+{% extends "pos/base.html" %}
+{% block title %}General Ledger{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="ledgerPage()" x-init="loadAccounts()">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">General Ledger</h1>
+    </div>
+
+    <div class="card p-4 mb-6">
+      <label class="block text-sm font-medium mb-2">Select Account to view transactions</label>
+      <select x-model="selectedAccountId" @change="loadLedger()" class="input-field max-w-md">
+        <option value="">-- Choose an account --</option>
+        <template x-for="a in accounts" :key="a.id">
+          <option :value="a.id" x-text="a.code + ' - ' + a.name"></option>
+        </template>
+      </select>
+    </div>
+
+    <div x-show="ledgerData" class="card overflow-hidden">
+      <div class="bg-gray-50 p-4 border-b flex justify-between">
+        <div>
+          <h3 class="font-bold text-lg" x-text="ledgerData?.account?.name"></h3>
+          <p class="text-sm text-gray-500">Code: <span x-text="ledgerData?.account?.code"></span> | Type: <span x-text="ledgerData?.account?.type"></span></p>
+        </div>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-100 text-left text-xs uppercase text-gray-600">
+          <tr>
+            <th class="px-4 py-3">Date</th>
+            <th class="px-4 py-3">Ref</th>
+            <th class="px-4 py-3">Description</th>
+            <th class="px-4 py-3 text-right">Debit</th>
+            <th class="px-4 py-3 text-right">Credit</th>
+            <th class="px-4 py-3 text-right">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="e in ledgerData?.entries || []" :key="e.reference">
+            <tr class="border-t hover:bg-gray-50">
+              <td class="px-4 py-3" x-text="e.date"></td>
+              <td class="px-4 py-3 font-mono text-xs" x-text="e.reference"></td>
+              <td class="px-4 py-3" x-text="e.description"></td>
+              <td class="px-4 py-3 text-right" x-text="e.debit > 0 ? formatCurrency(e.debit) : '-'"></td>
+              <td class="px-4 py-3 text-right" x-text="e.credit > 0 ? formatCurrency(e.credit) : '-'"></td>
+              <td class="px-4 py-3 text-right font-semibold" x-text="formatCurrency(e.balance)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="ledgerData?.entries?.length === 0" class="p-8 text-center text-gray-500">
+        No transactions found for this account.
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function ledgerPage() {
+  return {
+    accounts: [], selectedAccountId: '', ledgerData: null,
+    async loadAccounts() {
+      if (!requireAuth()) return;
+      try { this.accounts = await apiFetch('/accounting/accounts/'); } catch(e) { alert(e.message); }
+    },
+    async loadLedger() {
+      if (!this.selectedAccountId) { this.ledgerData = null; return; }
+      try {
+        this.ledgerData = await apiFetch(`/accounting/ledger/${this.selectedAccountId}/`);
+      } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,577 @@
+{% extends "pos/base.html" %}
+{% block title %}POS · Sale{% endblock %}
+{% block body %}
+<div class="h-screen flex" x-data="posScreen()" x-init="init()">
+
+  <!-- Sidebar -->
+  {% include "pos/_nav.html" %}
+
+  <!-- Main -->
+  <div class="flex-1 flex flex-col overflow-hidden">
+    <header class="h-14 bg-white border-b flex items-center justify-between px-4">
+      <div class="text-sm font-medium" id="pos-branch">Branch</div>
+      <div class="text-xs px-2 py-1 rounded-full"
+           :class="shift ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+           x-text="shift ? 'Scanner ready' : 'Shift closed'"></div>
+    </header>
+
+    <div class="flex-1 flex overflow-hidden">
+      <!-- Products grid -->
+      <div class="flex-1 p-4 overflow-y-auto">
+        <div class="mb-4">
+          <input type="text" x-model="search" placeholder="Search products or scan..."
+                 class="input-field" />
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          <template x-for="p in filteredProducts" :key="p.id">
+            <button @click="scanAdd(p.barcode)"
+                    :class="lastScan === p.barcode ? 'ring-4 ring-green-400 bg-green-50' : ''"
+                    class="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 text-left flex flex-col overflow-hidden group">
+              
+              <!-- Image Container -->
+              <div class="relative w-full h-40 bg-gradient-to-b from-gray-50 to-gray-100 flex items-center justify-center overflow-hidden p-4">
+                <template x-if="p.image_url">
+                  <img :src="p.image_url" class="w-full h-full object-contain group-hover:scale-110 transition-transform duration-500 ease-out drop-shadow-md">
+                </template>
+                <template x-if="!p.image_url">
+                  <div class="flex flex-col items-center justify-center text-slate-300">
+                    <i data-lucide="package-open" class="w-12 h-12 mb-1 opacity-40"></i>
+                    <span class="text-[10px] font-bold tracking-widest uppercase opacity-60">No Image</span>
+                  </div>
+                </template>
+                
+                <!-- Out of Stock Overlay -->
+                <template x-if="p.current_stock <= 0">
+                  <div class="absolute inset-0 bg-white/70 backdrop-blur-[2px] flex items-center justify-center">
+                    <span class="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">OUT OF STOCK</span>
+                  </div>
+                </template>
+              </div>
+              
+              <!-- Details Container -->
+              <div class="p-4 flex-1 flex flex-col justify-between">
+                <div>
+                  <div class="font-bold text-slate-800 text-sm leading-tight line-clamp-2 min-h-[2.5rem]" x-text="p.name"></div>
+                  <div class="text-[11px] text-slate-400 font-mono mt-1 truncate" x-text="p.barcode"></div>
+                </div>
+                
+                <div class="flex justify-between items-end mt-4">
+                  <div class="flex flex-col">
+                    <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">Price</span>
+                    <div class="text-lg font-extrabold text-brand-700" x-text="formatCurrency(p.selling_price)"></div>
+                  </div>
+                  
+                  <div class="text-[11px] font-bold px-2.5 py-1 rounded-full border" 
+                       :class="p.current_stock <= 10 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-600 border-slate-200'">
+                    <span x-text="p.current_stock"></span> <span class="font-medium opacity-70">left</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          </template>
+        </div>
+        <div x-show="filteredProducts.length === 0" class="text-center py-12 text-gray-400">
+          No products found
+        </div>
+      </div>
+
+      <!-- Cart -->
+      <div class="w-96 bg-white border-l flex flex-col relative z-10">
+        <div class="p-4 border-b flex justify-between items-center">
+          <h2 class="font-semibold">Cart (<span x-text="cart.totals.item_count || 0"></span>)</h2>
+          <button x-show="cart.items?.length > 0" @click="clearCart()" class="text-xs text-red-600">Clear</button>
+        </div>
+        
+        <!-- Customer Search -->
+        <div class="px-4 py-2 border-b bg-gray-50 relative">
+          <div class="flex gap-2">
+            <input type="text" x-model="customerSearch" @input.debounce.300ms="searchCustomers()" @focus="showCustDropdown = true" placeholder="Search Phone or Name..." class="w-full px-2 py-1 text-sm border rounded">
+            <button @click="showNewCustModal = true" class="bg-brand-100 text-brand-700 px-2 rounded text-sm font-bold hover:bg-brand-200" title="Add New Customer">+</button>
+          </div>
+          
+          <template x-if="customerName">
+            <div class="mt-2 flex justify-between items-center bg-green-50 px-2 py-1 rounded border border-green-200">
+              <span class="text-xs font-medium text-green-800" x-text="customerName"></span>
+              <button @click="clearCustomer()" class="text-green-600 hover:text-green-900 text-xs font-bold">✕</button>
+            </div>
+          </template>
+
+          <div x-show="showCustDropdown && customerResults.length > 0" @click.away="showCustDropdown = false" class="absolute left-0 right-0 mt-1 bg-white border shadow-lg rounded z-20 mx-4 max-h-48 overflow-y-auto">
+            <template x-for="c in customerResults" :key="c.id">
+              <div @click="selectCustomer(c)" class="p-2 border-b hover:bg-gray-50 cursor-pointer">
+                <div class="text-sm font-medium" x-text="c.name"></div>
+                <div class="text-xs text-gray-500"><span x-text="c.phone"></span> · Points: <span x-text="c.points"></span></div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4 space-y-2">
+          <template x-if="!cart.items || cart.items.length === 0">
+            <div class="text-center py-12 text-gray-400">Scan or click products</div>
+          </template>
+          <template x-for="item in cart.items || []" :key="item.barcode">
+            <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate" x-text="item.name"></div>
+                <div class="text-xs text-gray-500">
+                  <template x-if="item.discount_percentage > 0">
+                    <span>
+                      <span class="line-through text-gray-400" x-text="formatCurrency(item.unit_price)"></span>
+                      <span class="text-red-600 font-bold ml-1" x-text="formatCurrency(item.price_gross)"></span>
+                    </span>
+                  </template>
+                  <template x-if="item.discount_percentage === 0">
+                    <span x-text="formatCurrency(item.unit_price)"></span>
+                  </template>
+                  × <span x-text="item.quantity"></span>
+                </div>
+              </div>
+              <div class="text-sm font-semibold" x-text="formatCurrency(item.line_total)"></div>
+            </div>
+          </template>
+        </div>
+
+        <div class="p-4 border-t space-y-3">
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-500">Subtotal</span>
+            <span x-text="formatCurrency(cart.totals.subtotal || 0)"></span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-500">VAT</span>
+            <span x-text="formatCurrency(cart.totals.tax_total || 0)"></span>
+          </div>
+          <div class="flex justify-between text-lg font-bold pt-2 border-t">
+            <span>Total</span>
+            <span class="text-brand-700" x-text="formatCurrency(cart.totals.total || 0)"></span>
+          </div>
+          <button :disabled="!shift || !cart.items || cart.items.length === 0"
+                  @click="checkoutOpen = true; payments = [{ method: 'CASH', amount: parseFloat(cart.totals.total || 0) }]" class="btn-primary w-full py-3 text-base">
+            Checkout
+          </button>
+          <button x-show="shift" @click="openZReport()" class="btn-secondary w-full text-sm text-red-600 border-red-200 hover:bg-red-50">
+            End Shift (Z-Report)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Open Shift Modal -->
+  <div x-show="openShiftModal" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" @click.self="openShiftModal = false">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 relative">
+      <button @click="openShiftModal = false" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 font-bold text-2xl px-2">
+        &times;
+      </button>
+      <h2 class="text-xl font-bold mb-4">Open Shift</h2>
+      <label class="block text-sm font-medium mb-1">Opening balance (cash in drawer)</label>
+      <input type="number" x-model="openingBalance" class="input-field mb-4" />
+      <button @click="openShift()" class="btn-primary w-full">Open Shift</button>
+      <button @click="openShiftModal = false" class="btn-secondary w-full mt-2">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Checkout Modal (Split Payments) -->
+  <div x-show="checkoutOpen" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4 border-b pb-2">
+        <h2 class="text-xl font-bold">Complete Payment</h2>
+        <button @click="checkoutOpen = false"><i data-lucide="x" class="w-5 h-5 text-gray-400"></i></button>
+      </div>
+      
+      <div class="flex justify-between items-center py-4 bg-gray-50 rounded-lg px-4 mb-4 border">
+        <div class="text-sm font-bold text-gray-600 uppercase">Grand Total</div>
+        <div class="text-3xl font-extrabold text-brand-700" x-text="formatCurrency(cart.totals.total || 0)"></div>
+      </div>
+
+      <!-- Payment Lines -->
+      <div class="space-y-3 mb-4">
+        <template x-for="(payment, idx) in payments" :key="idx">
+          <div class="flex gap-2 items-center bg-white border p-2 rounded-lg shadow-sm">
+            <select x-model="payment.method" class="input-field w-32">
+              <option value="CASH">Cash</option>
+              <option value="MOMO">Mobile Money</option>
+              <option value="CARD">Card</option>
+            </select>
+            
+            <input type="number" step="0.01" x-model.number="payment.amount" class="input-field flex-1 text-right font-bold" placeholder="0.00">
+            
+            <button @click="payments.splice(idx, 1)" x-show="payments.length > 1" class="text-red-500 hover:text-red-700 p-1">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <button @click="payments.push({method: 'CASH', amount: remainingToPay})" class="text-sm text-brand-600 font-bold hover:underline mb-4 flex items-center gap-1">
+        + Add Payment Method
+      </button>
+
+      <!-- Amount Remaining -->
+      <div class="flex justify-between text-lg font-bold border-t pt-3 mb-4">
+        <span>Remaining:</span>
+        <span :class="remainingToPay > 0 ? 'text-red-600' : 'text-green-600'" x-text="formatCurrency(remainingToPay)"></span>
+      </div>
+
+      <button @click="doCheckout()" :disabled="busy || remainingToPay !== 0" class="btn-primary w-full py-3 text-base">
+        <span x-show="!busy">Complete Sale</span>
+        <span x-show="busy">Processing...</span>
+      </button>
+      <p x-show="remainingToPay < 0" class="text-center text-red-500 text-xs mt-2">Payment exceeds total. Please adjust.</p>
+    </div>
+  </div>
+
+  <!-- Polling Modal -->
+  <div x-show="pollingPayment" x-cloak class="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4">
+    <div class="bg-white rounded-xl max-w-sm w-full p-8 text-center shadow-2xl">
+      <div class="animate-spin rounded-full h-16 w-16 border-b-4 border-brand-600 mx-auto mb-6"></div>
+      <h2 class="text-xl font-bold text-slate-900 mb-2">Waiting for Payment</h2>
+      <p class="text-gray-500 mb-6">A prompt has been sent to <strong x-text="paymentPhone"></strong>. Please enter your PIN to authorize.</p>
+      <button @click="pollingPayment = false; busy = false" class="text-red-600 text-sm hover:underline">Cancel Transaction</button>
+    </div>
+  </div>
+
+  <!-- Receipt Modal (Extreme Z-Index) -->
+  <div x-show="receiptModal" x-cloak class="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm">
+    <div class="bg-white rounded-xl max-w-md w-full max-h-[90vh] flex flex-col shadow-2xl" @click.away="receiptModal = null">
+      <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <i data-lucide="receipt" class="w-5 h-5 text-brand-600"></i> Receipt
+        </h2>
+        <button @click="receiptModal = null" class="text-gray-400 hover:text-gray-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4 bg-gray-100">
+        <pre class="receipt-text bg-white p-4 rounded shadow-sm text-sm" x-text="receiptModal?.text"></pre>
+      </div>
+      <div class="p-4 border-t flex gap-2 bg-gray-50 rounded-b-xl">
+        <button @click="printReceipt(receiptModal.text)" class="btn-secondary flex-1 flex items-center justify-center gap-2">
+          <i data-lucide="printer" class="w-4 h-4"></i> Print
+        </button>
+        <button @click="receiptModal = null;" class="btn-primary flex-1">
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Z-Report Modal -->
+  <div x-show="zReportModal" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6">
+      <h2 class="text-xl font-bold mb-4">End of Shift (Z-Report)</h2>
+      <div class="space-y-2 text-sm mb-4 bg-gray-50 p-4 rounded-lg">
+        <div class="flex justify-between"><span class="text-gray-500">Total Sales:</span><span class="font-bold" x-text="formatCurrency(zReportData.total_sales)"></span></div>
+        <div class="flex justify-between"><span class="text-gray-500">Transactions:</span><span x-text="zReportData.transaction_count"></span></div>
+        <div class="flex justify-between border-t pt-2 mt-2"><span class="text-gray-500">Cash Sales:</span><span x-text="formatCurrency(zReportData.cash_sales)"></span></div>
+        <div class="flex justify-between border-t pt-2 mt-2 font-bold"><span>Expected Cash:</span><span class="text-brand-700" x-text="formatCurrency(zReportData.expected_cash)"></span></div>
+      </div>
+      <label class="block text-sm font-medium mb-1">Physical Cash Counted</label>
+      <input type="number" step="0.01" x-model="actualCash" @input="calculateVariance()" class="input-field mb-2 text-lg font-bold">
+      <div class="mb-4 p-2 rounded text-center text-sm font-bold" :class="variance < 0 ? 'bg-red-100 text-red-700' : variance > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'">
+        <span x-text="variance === 0 ? 'Perfectly balanced' : (variance < 0 ? 'Shortage: ' : 'Overage: ') + formatCurrency(Math.abs(variance))"></span>
+      </div>
+      <div class="flex gap-2">
+        <button @click="zReportModal = false" class="btn-secondary flex-1">Cancel</button>
+        <button @click="submitCloseShift()" class="btn-primary flex-1 bg-red-600 hover:bg-red-700 text-white">Confirm & Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Customer Modal -->
+  <div x-show="showNewCustModal" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl max-w-sm w-full p-6">
+      <h2 class="text-xl font-bold mb-4">New Customer</h2>
+      <form @submit.prevent="createNewCustomer()" class="space-y-3">
+        <input type="text" x-model="newCust.phone_number" placeholder="Phone Number" class="input-field" required>
+        <input type="text" x-model="newCust.first_name" placeholder="First Name" class="input-field" required>
+        <input type="text" x-model="newCust.last_name" placeholder="Last Name" class="input-field">
+        <div class="flex gap-2 mt-4">
+          <button type="button" @click="showNewCustModal = false" class="btn-secondary flex-1">Cancel</button>
+          <button type="submit" class="btn-primary flex-1">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function posScreen() {
+  return {
+    shift: null, products: [], cart: { items: [], totals: {} },
+    search: '', busy: false, lastScan: null, customerName: '', customerId: null,
+    customerSearch: '', customerResults: [], showCustDropdown: false, showNewCustModal: false, customerPhone: '',
+    newCust: { first_name: '', last_name: '', phone_number: '' },
+    openShiftModal: false, checkoutOpen: false, receiptModal: null, 
+    payments: [{ method: 'CASH', amount: 0 }], paymentPhone: '', pollingPayment: false,
+    availableMomoProviders: [], selectedProvider: '', paymentConfigs: [],
+    zReportModal: false, zReportData: {}, actualCash: 0, variance: 0,
+    openingBalance: 0,
+
+    async init() {
+      if (!requireAuth() || !requireBranch()) return;
+
+      window.addEventListener('barcode-scanned', (e) => this.scanAdd(e.detail.code));
+
+      // 1. Load Products FIRST (so the grid populates immediately)
+      try {
+        const prodData = await apiFetch('/inventory/products/');
+        this.products = Array.isArray(prodData) ? prodData : [];
+      } catch (e) {
+        console.error("Failed to load products:", e);
+        alert("Error loading products: " + e.message);
+      }
+
+      // 2. Load Shift
+      try {
+        this.shift = await apiFetch('/sales/current-shift/').catch((e) => {
+          if (e.response?.status === 404) return null; throw e;
+        });
+        if (this.shift) {
+          this.cart = await apiFetch('/sales/cart/');
+        } else {
+          this.openShiftModal = true;
+        }
+      } catch (e) {
+        console.error("Failed to load shift:", e);
+      }
+
+      // 3. Load Payment Gateways
+      try {
+        this.paymentConfigs = await apiFetch('/payments/configs/');
+        if (this.paymentConfigs && Array.isArray(this.paymentConfigs)) {
+          const momoConfigs = this.paymentConfigs.filter(c => c.provider.includes('DIRECT'));
+          this.availableMomoProviders = [...new Set(momoConfigs.map(c => c.provider))];
+          if (this.availableMomoProviders.length > 0) {
+            this.selectedProvider = this.availableMomoProviders[0];
+          }
+        }
+      } catch (e) { 
+        console.error("Could not load gateways", e); 
+      }
+
+      // 4. Load Branch Name
+      try {
+        const branches = await apiFetch('/auth/branches/');
+        const cur = branches.find(b => String(b.id) === String(getBranchId()));
+        if (cur) document.getElementById('pos-branch').textContent = cur.name;
+      } catch (e) {
+        console.error("Failed to load branches:", e);
+      }
+    },
+
+    get remainingToPay() {
+      const total = parseFloat(this.cart.totals.total || 0);
+      const paid = this.payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+      return parseFloat((total - paid).toFixed(2));
+    },
+
+    get remainingToPay() {
+      const total = parseFloat(this.cart.totals.total || 0);
+      const paid = this.payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+      return parseFloat((total - paid).toFixed(2));
+    },
+
+    get filteredProducts() {
+      if (!Array.isArray(this.products)) return [];
+      const q = this.search.toLowerCase();
+      return q ? this.products.filter(p => p.name && p.name.toLowerCase().includes(q) || p.barcode.includes(q)) : this.products;
+    },
+
+    formatProviderName(p) {
+      if (!p) return '';
+      const names = { 
+        'MTN_DIRECT': 'MTN Mobile Money', 
+        'AIRTEL_DIRECT': 'Airtel Money', 
+        'ZAMTEL_DIRECT': 'Zamtel Kwacha' 
+      };
+      return names[p] || p;
+    },
+
+    async scanAdd(barcode) {
+      if (!this.shift) { alert('Open a shift first'); return; }
+      try {
+        const res = await apiFetch('/sales/scan-add/', {
+          method: 'POST',
+          body: JSON.stringify({ barcode, quantity: 1 }),
+        });
+        this.cart = res.cart;
+        this.lastScan = res.product.barcode;
+        setTimeout(() => this.lastScan = null, 700);
+      } catch (e) {
+        alert(e.response?.data?.error || 'Scan failed');
+      }
+    },
+
+    async openShift() {
+      try {
+        await apiFetch('/sales/open-shift/', {
+          method: 'POST',
+          body: JSON.stringify({ opening_balance: parseFloat(this.openingBalance) || 0 }),
+        });
+        this.shift = await apiFetch('/sales/current-shift/');
+        this.openShiftModal = false;
+      } catch (e) { alert(e.response?.data?.error || 'Failed'); }
+    },
+
+    async clearCart() {
+      if (!confirm('Clear cart?')) return;
+      try {
+        await apiFetch('/sales/cart/clear/', { method: 'POST' });
+        this.cart = { items: [], totals: {} };
+      } catch (e) { alert('Failed'); }
+    },
+
+    // --- Customer Search ---
+    async searchCustomers() {
+      if (this.customerSearch.length < 3) { this.customerResults = []; return; }
+      try {
+        this.customerResults = await apiFetch(`/customers/pos-search/?q=${this.customerSearch}`);
+        this.showCustDropdown = true;
+      } catch(e) { console.error(e); }
+    },
+
+    selectCustomer(c) {
+      this.customerId = c.id;
+      this.customerName = c.name;
+      this.customerPhone = c.phone;
+      this.customerSearch = '';
+      this.customerResults = [];
+      this.showCustDropdown = false;
+      this.updateCustomer();
+    },
+
+    clearCustomer() {
+      this.customerId = null;
+      this.customerName = '';
+      this.customerPhone = '';
+      this.updateCustomer();
+    },
+
+    async createNewCustomer() {
+      try {
+        const res = await apiFetch('/customers/', { method: 'POST', body: JSON.stringify(this.newCust) });
+        this.selectCustomer({ id: res.id, name: res.name });
+        this.showNewCustModal = false;
+        this.newCust = { first_name: '', last_name: '', phone_number: '' };
+      } catch(e) { alert(e.response?.data?.error || e.message); }
+    },
+
+    async updateCustomer() {
+      if (!this.shift) return;
+      try {
+        await apiFetch('/sales/cart/customer/', {
+          method: 'POST',
+          body: JSON.stringify({ customer_id: this.customerId, customer_name: this.customerName, customer_phone: this.customerPhone })
+        });
+      } catch (e) { console.error('Failed to update customer', e); }
+    },
+
+    // --- Checkout ---
+    async doCheckout() {
+      if (this.remainingToPay !== 0) { alert('Payment amount does not match the total.'); return; }
+      
+      this.busy = true;
+
+      try {
+        // Process each Mobile Money payment (initiate USSD and poll)
+        for (let p of this.payments) {
+          if (p.method === 'MOMO') {
+            if (!this.paymentPhone) throw new Error('Phone number required for Mobile Money');
+            
+            const initRes = await apiFetch('/payments/momo/initiate/', {
+              method: 'POST',
+              body: JSON.stringify({
+                phone: this.paymentPhone,
+                amount: p.amount,
+                provider: this.selectedProvider || 'MTN_DIRECT'
+              })
+            });
+            
+            const ref = initRes.reference_id;
+            this.pollingPayment = true;
+            
+            let isPaid = false;
+            for (let i = 0; i < 30; i++) {
+              await new Promise(r => setTimeout(r, 2000));
+              const statusRes = await apiFetch(`/payments/momo/status/${ref}/`);
+              if (statusRes.status === 'SUCCESS') { isPaid = true; break; }
+              if (statusRes.status === 'FAILED') { throw new Error('Payment declined.'); }
+            }
+            
+            this.pollingPayment = false;
+            if (!isPaid) throw new Error('Payment timed out.');
+          }
+        }
+
+        // Submit the final checkout with the array of payments
+        const res = await apiFetch('/sales/cart/checkout/', {
+          method: 'POST',
+          body: JSON.stringify({ payments: this.payments }),
+        });
+        
+        this.checkoutOpen = false;
+        this.pollingPayment = false;
+        
+        const receipt = await apiFetch(`/sales/invoices/${res.invoice_id}/receipt.txt`);
+        this.receiptModal = { ...res, text: receipt.text };
+        
+        this.cart = { items: [], totals: {} };
+        this.customerName = ''; this.customerId = null; this.customerPhone = ''; this.paymentPhone = '';
+        this.payments = [{ method: 'CASH', amount: 0 }];
+        
+        this.products = await apiFetch('/inventory/products/');
+        
+      } catch (e) {
+        this.pollingPayment = false;
+        alert('Payment Error: ' + (e.response?.data?.error || e.message));
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    printReceipt(text) {
+      const win = window.open('', '_blank', 'width=400,height=650');
+      if (!win) { alert('Allow popups to print receipts'); return; }
+      
+      // We safely split the closing script tag so it doesn't break this parent script block
+      const closeScript = '</scr' + 'ipt>';
+      const html = `<html><head><title>Receipt</title><style>body{font-family:'Courier New',monospace;font-size:12px;margin:8px;}pre{white-space:pre-wrap;margin:0;}@media print{body{margin:0;}}</style></head><body><pre>${text}</pre><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),100);}${closeScript}</body></html>`;
+      
+      win.document.write(html);
+      win.document.close();
+    },
+
+    // --- Z-Report ---
+    async openZReport() {
+      try {
+        this.zReportData = await apiFetch('/sales/shift/summary/');
+        this.actualCash = this.zReportData.expected_cash;
+        this.calculateVariance();
+        this.zReportModal = true;
+      } catch(e) { alert(e.message); }
+    },
+
+    calculateVariance() {
+      this.variance = parseFloat(this.actualCash || 0) - parseFloat(this.zReportData.expected_cash || 0);
+    },
+
+    async submitCloseShift() {
+      if (!confirm('Are you sure you want to close this shift?')) return;
+      try {
+        const res = await apiFetch('/sales/close-shift/', {
+          method: 'POST',
+          body: JSON.stringify({ actual_cash: this.actualCash })
+        });
+        alert(`Shift closed. Variance: ${formatCurrency(res.variance)}`);
+        this.zReportModal = false;
+        this.shift = null;
+        this.cart = { items: [], totals: {} };
+        this.openShiftModal = true;
+      } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

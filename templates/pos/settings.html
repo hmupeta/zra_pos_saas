@@ -1,0 +1,336 @@
+{% extends "pos/base.html" %}
+{% block title %}Shop Settings{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="settingsPage()" x-init="load()">
+    <h1 class="text-2xl font-bold mb-6">Shop Settings & Branding</h1>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <!-- Branding Form -->
+      <div class="card p-6">
+        <h2 class="font-semibold mb-4 text-lg">Company Details</h2>
+        <form @submit.prevent="save()" class="space-y-4">
+          <div>
+            <label class="block text-sm mb-1">Shop/Branch Name</label>
+            <input type="text" x-model="form.name" class="input-field" required>
+          </div>
+          <div>
+            <label class="block text-sm mb-1">TPIN</label>
+            <input type="text" x-model="form.tpin" class="input-field">
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Phone</label>
+            <input type="text" x-model="form.phone" class="input-field">
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Email</label>
+            <input type="email" x-model="form.email" class="input-field">
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Address (Printed on Receipt)</label>
+            <textarea x-model="form.address" class="input-field" rows="2"></textarea>
+          </div>
+          
+          <div class="border-t pt-4 mt-4">
+            <label class="block text-sm font-medium mb-2">Shop Logo</label>
+            <p class="text-xs text-gray-500 mb-2">Appears on receipts and as a watermark.</p>
+            <input type="file" @change="handleFile" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100">
+          </div>
+
+          <button type="submit" class="btn-primary w-full mt-4" :disabled="saving">
+            <span x-show="!saving">Save Settings</span>
+            <span x-show="saving">Saving...</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Logo Preview -->
+      <div class="card p-6 flex flex-col items-center justify-center bg-gray-50">
+        <h2 class="font-semibold mb-4 text-gray-500">Current Logo</h2>
+        <template x-if="previewUrl || form.logo_url">
+          <img :src="previewUrl || form.logo_url" class="max-w-xs max-h-64 object-contain bg-white p-4 shadow-sm border rounded-lg" alt="Shop Logo">
+        </template>
+        <template x-if="!previewUrl && !form.logo_url">
+          <div class="text-gray-400 text-sm">No logo uploaded yet.</div>
+        </template>
+      </div>
+
+    </div>
+
+    <div class="card p-6 mt-6">
+      <div class="flex justify-between items-center mb-4">
+        <div>
+          <h2 class="font-semibold text-lg">Payment Gateways</h2>
+          <p class="text-xs text-gray-500">Configure how this specific branch collects money.</p>
+        </div>
+        <button @click="showGatewayModal = true" class="btn-primary text-sm">+ Add Config</button>
+      </div>
+      
+      <div class="space-y-2">
+        <template x-for="c in configs" :key="c.id">
+          <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+            <div>
+              <div class="font-bold text-slate-800" x-text="formatProviderName(c.provider)"></div>
+              <div class="text-xs text-gray-500">
+                <template x-if="c.provider === 'MTN_DIRECT'">
+                   <span>API User: <span x-text="c.mtn_api_user ? c.mtn_api_user.substring(0,8) + '...' : '-'"></span></span>
+                </template>
+                <template x-if="c.provider !== 'MTN_DIRECT'">
+                   <span>Merchant: <span x-text="c.merchant_id || '-'"></span></span>
+                </template>
+              </div>
+            </div>
+            <div class="flex gap-3">
+              <button @click="testGateway(c.provider)" class="text-blue-600 hover:text-blue-800 text-xs font-bold" :disabled="testingGw === c.provider">
+                <span x-show="testingGw !== c.provider">Test</span>
+                <span x-show="testingGw === c.provider">Testing...</span>
+              </button>
+              <button @click="editGateway(c)" class="text-brand-600 hover:underline text-xs font-medium">Edit</button>
+              <button @click="deleteGateway(c.provider)" class="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>
+            </div>
+          </div>
+        </template>
+        <div x-show="configs.length === 0" class="text-sm text-gray-400 italic">No payment gateways configured for this branch.</div>
+      </div>
+    </div>
+
+    <!-- Gateway Modal -->
+    <div x-show="showGatewayModal" x-cloak class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-center mb-1">
+          <h2 class="text-xl font-bold">Payment Gateway Config</h2>
+        </div>
+        <p class="text-xs text-brand-600 font-medium mb-4">Configuring for Branch: <span x-text="form.name" class="font-bold"></span></p>
+        
+        <form @submit.prevent="saveGateway()" class="space-y-4">
+          <div>
+            <label class="block text-sm mb-1">Provider</label>
+            <select x-model="gatewayForm.provider" class="input-field">
+              <option value="MTN_DIRECT">MTN Mobile Money</option>
+              <option value="AIRTEL_DIRECT">Airtel Money</option>
+              <option value="ZAMTEL_DIRECT">Zamtel Kwacha</option>
+              <option value="STRIPE">Stripe (Card)</option>
+              <option value="PAYPAL">PayPal</option>
+              <option value="MONEYUNIFY">MoneyUnify (Aggregated)</option>
+            </select>
+          </div>
+          
+          <!-- MTN Specific Form -->
+          <template x-if="gatewayForm.provider === 'MTN_DIRECT'">
+            <div class="space-y-3 border p-4 rounded-lg bg-gray-50 border-gray-200">
+              <div class="flex justify-between items-center">
+                <p class="text-sm font-bold text-slate-700">MTN MoMo Credentials</p>
+                <select x-model="gatewayForm.mtn_target_env" class="border rounded px-2 py-1 text-xs">
+                  <option value="sandbox">Sandbox</option>
+                  <option value="production">Production</option>
+                </select>
+              </div>
+              
+              <div>
+                <label class="text-xs text-gray-500">Subscription Key (Primary)</label>
+                <input placeholder="Enter Subscription Key" x-model="gatewayForm.mtn_subscription_key" class="input-field" required>
+              </div>
+
+              <button type="button" @click="generateMtnUser()" class="w-full py-2 bg-yellow-100 text-yellow-800 text-sm font-bold rounded border border-yellow-300 hover:bg-yellow-200 transition" :disabled="generatingUser">
+                <span x-text="generatingUser ? 'Generating...' : '⚡ Generate API User & Key'"></span>
+              </button>
+
+              <div>
+                <label class="text-xs text-gray-500">API User</label>
+                <input placeholder="Auto-generated" x-model="gatewayForm.mtn_api_user" class="input-field bg-gray-100" readonly required>
+              </div>
+              <div>
+                <label class="text-xs text-gray-500">API Key</label>
+                <input placeholder="Auto-generated" x-model="gatewayForm.mtn_api_key" class="input-field bg-gray-100" readonly required>
+              </div>
+            </div>
+          </template>
+          
+          <!-- Card / PayPal / Other Forms -->
+          <template x-if="['STRIPE', 'PAYPAL', 'MONEYUNIFY'].includes(gatewayForm.provider)">
+            <div class="space-y-3 border p-4 rounded-lg bg-gray-50 border-gray-200">
+              <p class="text-sm font-bold text-slate-700" x-text="gatewayForm.provider + ' Credentials'"></p>
+              <div>
+                <label class="text-xs text-gray-500">Merchant ID / Client ID</label>
+                <input placeholder="Merchant ID" x-model="gatewayForm.merchant_id" class="input-field" required>
+              </div>
+              <div>
+                <label class="text-xs text-gray-500">Secret Key / API Key</label>
+                <input placeholder="Secret Key" x-model="gatewayForm.api_key" class="input-field" required>
+              </div>
+            </div>
+          </template>
+
+          <!-- Airtel / Zamtel Forms -->
+          <template x-if="['AIRTEL_DIRECT', 'ZAMTEL_DIRECT'].includes(gatewayForm.provider)">
+            <div class="space-y-3 border p-4 rounded-lg bg-gray-50 border-gray-200">
+              <p class="text-sm font-bold text-slate-700" x-text="gatewayForm.provider.replace('_DIRECT', '') + ' Credentials'"></p>
+              <div>
+                <label class="text-xs text-gray-500">Merchant Code / Client ID</label>
+                <input placeholder="Merchant Code" x-model="gatewayForm.merchant_id" class="input-field" required>
+              </div>
+              <div>
+                <label class="text-xs text-gray-500">Client Secret / API Key</label>
+                <input placeholder="API Key" x-model="gatewayForm.api_key" class="input-field" required>
+              </div>
+            </div>
+          </template>
+          
+          <div class="flex gap-2 mt-6">
+            <button type="button" @click="showGatewayModal = false" class="btn-secondary flex-1">Cancel</button>
+            <button type="submit" class="btn-primary flex-1" :disabled="savingGw">Save to Branch</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script>
+function settingsPage() {
+  return {
+    form: { name: '', tpin: '', address: '', phone: '', email: '', logo_url: null },
+    configs: [],
+    saving: false,
+    previewUrl: null,
+    logoFile: null,
+    showGatewayModal: false,
+    savingGw: false,
+    generatingUser: false,
+    testingGw: null,
+    gatewayForm: { provider: 'MTN_DIRECT', merchant_id: '', api_key: '', mtn_subscription_key: '', mtn_api_user: '', mtn_api_key: '', mtn_target_env: 'sandbox' },
+
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      try { 
+        this.form = await apiFetch('/auth/company/');
+        this.configs = await apiFetch('/payments/configs/');
+      } catch (e) { alert(e.message); }
+    },
+
+    handleFile(e) {
+      const file = e.target.files[0];
+      if (file) {
+        this.logoFile = file;
+        this.previewUrl = URL.createObjectURL(file);
+      }
+    },
+
+
+    editGateway(c) {
+      this.gatewayForm = { ...c };
+      this.showGatewayModal = true;
+    },
+
+
+    async generateMtnUser() {
+      if (!this.gatewayForm.mtn_subscription_key) {
+        alert('Please enter the Subscription Key first.');
+        return;
+      }
+      this.generatingUser = true;
+      try {
+        const res = await apiFetch('/payments/mtn/generate-user/', {
+          method: 'POST',
+          body: JSON.stringify({
+            subscription_key: this.gatewayForm.mtn_subscription_key,
+            target_env: this.gatewayForm.mtn_target_env
+          })
+        });
+        this.gatewayForm.mtn_api_user = res.api_user;
+        this.gatewayForm.mtn_api_key = res.api_key;
+        alert('API User and Key generated successfully! You can now save.');
+      } catch(e) {
+        alert('Generation failed: ' + (e.response?.data?.error || e.message));
+      } finally {
+        this.generatingUser = false;
+      }
+    },
+
+
+    formatProviderName(p) {
+      const names = {
+        'MTN_DIRECT': 'MTN Mobile Money',
+        'AIRTEL_DIRECT': 'Airtel Money',
+        'ZAMTEL_DIRECT': 'Zamtel Kwacha',
+        'STRIPE': 'Stripe (Card)',
+        'PAYPAL': 'PayPal',
+        'MONEYUNIFY': 'MoneyUnify'
+      };
+      return names[p] || p;
+    },
+
+    async testGateway(provider) {
+      this.testingGw = provider;
+      try {
+        const res = await apiFetch('/payments/test-connection/', {
+          method: 'POST',
+          body: JSON.stringify({ provider })
+        });
+        alert('✅ ' + res.message);
+      } catch(e) {
+        alert('❌ ' + (e.response?.data?.error || e.message));
+      } finally {
+        this.testingGw = null;
+      }
+    },
+
+
+    async deleteGateway(provider) {
+      if (!confirm(`Are you sure you want to delete the ${this.formatProviderName(provider)} configuration?`)) return;
+      try {
+        await apiFetch('/payments/delete-gateway/', { method: 'POST', body: JSON.stringify({ provider }) });
+        this.load(); // Refresh the list
+      } catch(e) { alert(e.response?.data?.error || e.message); }
+    },
+
+    async saveGateway() {
+      this.savingGw = true;
+      try {
+        await apiFetch('/payments/configs/', { method: 'POST', body: JSON.stringify(this.gatewayForm) });
+        this.showGatewayModal = false;
+        this.load();
+      } catch(e) { alert(e.response?.data?.error || e.message); }
+      finally { this.savingGw = false; }
+    },
+
+    async save() {
+      this.saving = true;
+      try {
+        const fd = new FormData();
+        fd.append('name', this.form.name);
+        fd.append('tpin', this.form.tpin);
+        fd.append('address', this.form.address);
+        fd.append('phone', this.form.phone);
+        fd.append('email', this.form.email);
+        if (this.logoFile) fd.append('logo', this.logoFile);
+
+        // Custom fetch for FormData to ensure Auth header is set correctly
+        const token = getToken();
+        const res = await fetch('/api/auth/company/', {
+          method: 'POST',
+          headers: { 'Authorization': `Token ${token}` }, // Do NOT set Content-Type
+          body: fd
+        });
+        
+        if (!res.ok) {
+           const errData = await res.json().catch(() => ({}));
+           throw new Error(errData.error || 'Failed to update');
+        }
+        
+        alert('Settings updated successfully!');
+        this.logoFile = null;
+        this.previewUrl = null;
+        this.load(); // Reload to show saved image
+      } catch (e) {
+        alert('Failed to update settings: ' + e.message);
+      } finally {
+        this.saving = false;
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

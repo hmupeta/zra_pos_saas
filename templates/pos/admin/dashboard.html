@@ -1,0 +1,88 @@
+{% extends "pos/admin/base.html" %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block content %}
+<div class="p-6" x-data="adminDash()" x-init="load()">
+  <h1 class="text-2xl font-bold mb-6">Platform Overview</h1>
+  <template x-if="!data"><div class="text-gray-500">Loading...</div></template>
+  <template x-if="data">
+    <div>
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+        <template x-for="k in kpis" :key="k.label">
+          <div class="card p-4">
+            <div class="text-xs text-gray-500" x-text="k.label"></div>
+            <div class="text-lg font-bold" x-text="k.value"></div>
+          </div>
+        </template>
+      </div>
+      <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
+        <div class="text-sm text-red-800">
+          <strong>Outstanding billing:</strong>
+          <span x-text="formatCurrency(data.kpis.outstanding_balance)"></span> —
+          <a href="/admin/billing" class="underline">View invoices</a>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="card p-5">
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="font-semibold">Recent Signups</h2>
+            <a href="/admin/applications" class="text-sm text-indigo-600">View all →</a>
+          </div>
+          <template x-if="data.recent_signups.length === 0">
+            <div class="text-sm text-gray-400">None yet</div>
+          </template>
+          <template x-for="s in data.recent_signups" :key="s.id">
+            <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg mb-2">
+              <div>
+                <div class="text-sm font-medium" x-text="s.business_name"></div>
+                <div class="text-xs text-gray-500" x-text="s.contact_email"></div>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700" x-text="s.status"></span>
+            </div>
+          </template>
+        </div>
+        <div class="card p-5">
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="font-semibold">Recent Payments</h2>
+            <a href="/admin/billing" class="text-sm text-indigo-600">View all →</a>
+          </div>
+          <template x-if="data.recent_payments.length === 0">
+            <div class="text-sm text-gray-400">None yet</div>
+          </template>
+          <template x-for="p in data.recent_payments" :key="p.id">
+            <div class="flex justify-between items-center p-2 bg-gray-50 rounded-lg mb-2">
+              <div>
+                <div class="text-sm font-medium" x-text="p.tenant_name"></div>
+                <div class="text-xs text-gray-500" x-text="p.payment_date"></div>
+              </div>
+              <div class="text-sm font-bold text-green-700" x-text="formatCurrency(p.amount)"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </template>
+</div>
+<script>
+function adminDash() {
+  return {
+    data: null, kpis: [],
+    async load() {
+      try {
+        this.data = await apiFetch('/saas/admin/dashboard/');
+      const k = this.data.kpis;
+      this.kpis = [
+        { label: 'MRR', value: formatCurrency(k.mrr) },
+        { label: 'ARR', value: formatCurrency(k.arr) },
+        { label: 'Active Tenants', value: k.active_tenants },
+        { label: 'Trial Tenants', value: k.trial_tenants },
+        { label: 'Pending Signups', value: k.pending_applications },
+        { label: 'Renewals (30d)', value: k.upcoming_renewals_30d },
+      ];
+      } catch (e) {
+        alert('Dashboard Error: ' + e.message);
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

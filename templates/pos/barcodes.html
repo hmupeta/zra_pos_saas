@@ -1,0 +1,117 @@
+{% extends "pos/base.html" %}
+{% block title %}Barcode Generator{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="barcodeApp()" x-init="load()">
+    
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h1 class="text-2xl font-bold">Barcode Label Generator</h1>
+        <p class="text-gray-500 text-sm mt-1">Select products below to generate and print barcode labels.</p>
+      </div>
+      <button @click="printLabels()" class="btn-primary flex items-center gap-2" :disabled="Object.keys(selected).length === 0">
+        <i data-lucide="printer" class="w-4 h-4"></i> Print Selected Labels
+      </button>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+          <tr>
+            <th class="px-4 py-3 w-12">
+              <input type="checkbox" @change="toggleAll($event)" class="rounded">
+            </th>
+            <th class="px-4 py-3">Product</th>
+            <th class="px-4 py-3">Barcode</th>
+            <th class="px-4 py-3">Preview</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="p in products" :key="p.id">
+            <tr class="border-t hover:bg-gray-50">
+              <td class="px-4 py-3">
+                <input type="checkbox" :value="p.id" x-model="selected[p.id]" class="rounded">
+              </td>
+              <td class="px-4 py-3 font-medium" x-text="p.name"></td>
+              <td class="px-4 py-3 font-mono text-xs" x-text="p.barcode"></td>
+              <td class="px-4 py-3">
+                <button @click="previewBarcode(p.barcode)" class="text-xs text-brand-600 hover:underline">View Barcode</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Preview Modal -->
+    <template x-if="previewImg">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-sm w-full p-6 text-center">
+          <h2 class="text-lg font-bold mb-4">Barcode Preview</h2>
+          <img :src="previewImg" class="mx-auto border p-4 bg-white rounded">
+          <button @click="previewImg = null" class="btn-secondary w-full mt-4">Close</button>
+        </div>
+      </div>
+    </template>
+
+  </div>
+</div>
+<script>
+function barcodeApp() {
+  return {
+    products: [], selected: {}, previewImg: null,
+    
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      try {
+        this.products = await apiFetch('/inventory/products/');
+      } catch(e) { alert(e.message); }
+    },
+
+    toggleAll(e) {
+      if (e.target.checked) {
+        this.products.forEach(p => this.selected[p.id] = true);
+      } else {
+        this.selected = {};
+      }
+    },
+
+    async previewBarcode(barcode) {
+      try {
+        const res = await apiFetch(`/auth/barcode/${barcode}/`);
+        this.previewImg = res.image;
+      } catch(e) { alert(e.message); }
+    },
+
+    async printLabels() {
+      const items = this.products.filter(p => this.selected[p.id]);
+      if (items.length === 0) return;
+
+      let win = window.open('', '_blank');
+      win.document.write('<html><head><title>Print Barcodes</title>');
+      win.document.write('<style>');
+      win.document.write('body { font-family: Arial; display: flex; flex-wrap: wrap; gap: 20px; padding: 20px; }');
+      win.document.write('.label { width: 200px; border: 1px dashed #ccc; padding: 10px; text-align: center; }');
+      win.document.write('.label img { max-width: 100%; height: auto; }');
+      win.document.write('.label p { margin: 5px 0; font-size: 12px; font-weight: bold; }');
+      win.document.write('</style></head><body>');
+
+      for (let p of items) {
+        try {
+          const res = await apiFetch(`/auth/barcode/${p.barcode}/`);
+          win.document.write(`<div class="label">`);
+          win.document.write(`<p>${p.name}</p>`);
+          win.document.write(`<img src="${res.image}">`);
+          win.document.write(`</div>`);
+        } catch(e) { console.error(e); }
+      }
+
+      win.document.write('</body></html>');
+      win.document.close();
+      setTimeout(() => win.print(), 500);
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,118 @@
+{% extends "pos/base.html" %}
+{% block title %}Journal Entries{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="journalsPage()" x-init="load()">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Journal Entries</h1>
+      <button @click="showModal = true" class="btn-primary">+ Manual Entry</button>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+          <tr>
+            <th class="px-4 py-3">Date</th>
+            <th class="px-4 py-3">Ref</th>
+            <th class="px-4 py-3">Description</th>
+            <th class="px-4 py-3">Type</th>
+            <th class="px-4 py-3 text-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="j in journals" :key="j.id">
+            <tr class="border-t hover:bg-gray-50 cursor-pointer" @click="viewJournal(j)">
+              <td class="px-4 py-3" x-text="j.date"></td>
+              <td class="px-4 py-3 font-mono text-xs" x-text="j.journal_number"></td>
+              <td class="px-4 py-3 font-medium" x-text="j.description"></td>
+              <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 rounded" x-text="j.journal_type"></span></td>
+              <td class="px-4 py-3 text-right font-semibold" x-text="formatCurrency(j.total)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- New Journal Modal -->
+    <template x-if="showModal">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-2xl w-full p-6">
+          <h2 class="text-xl font-bold mb-4">New Journal Entry</h2>
+          <div class="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm mb-1">Date</label>
+              <input type="date" x-model="form.date" class="input-field">
+            </div>
+            <div>
+              <label class="block text-sm mb-1">Description</label>
+              <input type="text" x-model="form.description" placeholder="e.g. Paid Rent" class="input-field">
+            </div>
+          </div>
+          
+          <table class="w-full text-sm mb-4">
+            <thead><tr><th class="text-left pb-2">Account</th><th class="text-right pb-2">Debit</th><th class="text-right pb-2">Credit</th></tr></thead>
+            <tbody>
+              <template x-for="(line, idx) in form.lines" :key="idx">
+                <tr>
+                  <td class="pr-2">
+                    <select x-model="line.account_id" class="input-field">
+                      <option value="">Select Account...</option>
+                      <template x-for="a in accounts" :key="a.id">
+                        <option :value="a.id" x-text="a.code + ' - ' + a.name"></option>
+                      </template>
+                    </select>
+                  </td>
+                  <td class="pr-2"><input type="number" x-model="line.debit" class="input-field text-right" placeholder="0.00"></td>
+                  <td><input type="number" x-model="line.credit" class="input-field text-right" placeholder="0.00"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <button @click="form.lines.push({account_id:'', debit:'', credit:''})" class="text-sm text-brand-600 mb-4 hover:underline">+ Add Line</button>
+
+          <div class="flex justify-between items-center border-t pt-4">
+            <div class="text-sm font-bold">
+              Totals: Dr <span x-text="formatCurrency(form.lines.reduce((s,l)=>s+(parseFloat(l.debit)||0),0))"></span> | 
+              Cr <span x-text="formatCurrency(form.lines.reduce((s,l)=>s+(parseFloat(l.credit)||0),0))"></span>
+            </div>
+            <button @click="submitJournal()" class="btn-primary">Post Journal</button>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+<script>
+function journalsPage() {
+  return {
+    journals: [], accounts: [], showModal: false,
+    form: {
+      date: new Date().toISOString().split('T')[0],
+      description: '',
+      lines: [{ account_id: '', debit: '', credit: '' }, { account_id: '', debit: '', credit: '' }]
+    },
+    async load() {
+      if (!requireAuth()) return;
+      try {
+        this.journals = await apiFetch('/accounting/journals/');
+        this.accounts = await apiFetch('/accounting/accounts/');
+      } catch(e) { alert(e.message); }
+    },
+    async submitJournal() {
+      try {
+        await apiFetch('/accounting/journals/', { method: 'POST', body: JSON.stringify(this.form) });
+        this.showModal = false;
+        this.form = { date: new Date().toISOString().split('T')[0], description: '', lines: [{account_id:'', debit:'', credit:''}, {account_id:'', debit:'', credit:''}] };
+        this.load();
+      } catch(e) { alert(e.response?.data?.error || e.message); }
+    },
+    viewJournal(j) {
+      alert("Journal Details:
+" + j.description + "
+Total: " + formatCurrency(j.total));
+    }
+  }
+}
+</script>
+{% endblock %}

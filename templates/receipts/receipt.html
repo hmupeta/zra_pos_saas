@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Receipt - {{ invoice.invoice_number }}</title>
+    <style>
+        @page { size: 80mm auto; margin: 5mm; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: "Courier New", monospace;
+            font-size: 11px;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            position: relative;
+        }
+        /* Watermark Logo */
+        {% if company.logo %}
+        body::before {
+            content: "";
+            position: fixed;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 60%;
+            height: 60%;
+            background-image: url('{{ company.logo.url }}');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            opacity: 0.08; /* Adjust transparency */
+            z-index: -1;
+        }
+        {% endif %}
+        
+        .center { text-align: center; }
+        .logo-header { max-width: 50mm; max-height: 20mm; margin-bottom: 5px; }
+        .company-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        table.items th, table.items td { text-align: left; padding: 2px 0; font-size: 10px; }
+        table.items th { border-bottom: 1px solid #000; }
+        .text-right { text-align: right; }
+        .total-row { font-size: 14px; font-weight: bold; padding-top: 4px; }
+        .zra-box { border: 1px solid #000; padding: 4px; margin: 8px 0; text-align: center; font-size: 10px; }
+        .footer { margin-top: 12px; text-align: center; font-size: 10px; }
+    </style>
+</head>
+<body>
+    <div class="center">
+        {% if company.logo %}
+            <img src="{{ company.logo.url }}" class="logo-header" alt="Logo" />
+        {% endif %}
+        <div class="company-name">{{ company_name }}</div>
+        {% if company %}
+            <div>{{ company.address }}</div>
+            <div>Tel: {{ company.phone }}</div>
+            <div>TPIN: {{ company.tpin }}</div>
+        {% endif %}
+    </div>
+
+    <div class="divider"></div>
+
+    <div>
+        <div><strong>Invoice:</strong> {{ invoice.invoice_number }}</div>
+        <div><strong>Date:</strong> {{ invoice.created_at|date:"Y-m-d H:i" }}</div>
+        {% if invoice.customer_name and invoice.customer_name != "Cash Customer" %}
+        <div><strong>Customer:</strong> {{ invoice.customer_name }}</div>
+        {% endif %}
+    </div>
+
+    <div class="divider"></div>
+
+    <table class="items">
+        <thead>
+            <tr>
+                <th>Item</th>
+                <th class="text-right">Qty</th>
+                <th class="text-right">Price</th>
+                <th class="text-right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.product.name }}</td>
+                <td class="text-right">{{ item.quantity|floatformat:0 }}</td>
+                <td class="text-right">{{ item.unit_price|floatformat:2 }}</td>
+                <td class="text-right">{{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="divider"></div>
+
+    <table>
+        <tr>
+            <td>Subtotal:</td>
+            <td class="text-right">K{{ invoice.subtotal|floatformat:2 }}</td>
+        </tr>
+        <tr>
+            <td>VAT (16%):</td>
+            <td class="text-right">K{{ invoice.tax_total|floatformat:2 }}</td>
+        </tr>
+        {% if invoice.discount_total > 0 %}
+        <tr>
+            <td>Discount:</td>
+            <td class="text-right text-red-600">-K{{ invoice.discount_total|floatformat:2 }}</td>
+        </tr>
+        {% endif %}
+        <tr class="total-row">
+            <td>TOTAL:</td>
+            <td class="text-right">K{{ invoice.total|floatformat:2 }}</td>
+        </tr>
+    </table>
+
+    {% if invoice.zra_validation_code %}
+    <div class="zra-box">
+        <div><strong>ZRA SMART INVOICE</strong></div>
+        <div>Code: {{ invoice.zra_validation_code }}</div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+        <div>Thank you for your business!</div>
+    </div>
+</body>
+</html>

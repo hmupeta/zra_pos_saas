@@ -1,0 +1,34 @@
+{% extends "pos/base.html" %}
+{% block title %}Select Branch{% endblock %}
+{% block body %}
+<div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-indigo-50 to-indigo-100">
+  <div class="w-full max-w-2xl" x-data="branchPicker()" x-init="load()">
+    <h1 class="text-2xl font-bold text-center mb-6">Select a branch</h1>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <template x-for="b in branches" :key="b.id">
+        <button @click="pick(b.id)" class="bg-white rounded-xl shadow-sm border p-6 text-left hover:shadow-lg hover:border-brand-500">
+          <div class="text-lg font-semibold" x-text="b.name"></div>
+          <div class="text-sm text-gray-500 mt-1">Code: <span x-text="b.code"></span></div>
+          <div class="text-xs text-gray-400 mt-1">TPIN: <span x-text="b.tpin"></span></div>
+        </button>
+      </template>
+    </div>
+  </div>
+</div>
+<script>
+function branchPicker() {
+  return {
+    branches: [],
+    async load() {
+      if (!requireAuth()) return;
+      try { this.branches = await apiFetch('/auth/branches/'); }
+      catch { alert('Failed to load branches'); }
+    },
+    pick(id) {
+      localStorage.setItem('branchId', id);
+      location.href = '/pos';
+    }
+  }
+}
+</script>
+{% endblock %}

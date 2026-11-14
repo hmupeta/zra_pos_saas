@@ -1,0 +1,210 @@
+{% extends "pos/base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="dashboard()" x-init="load()">
+    
+    <div class="flex justify-between items-end mb-8 fade-in">
+      <div>
+        <h1 class="text-3xl font-bold text-slate-900 tracking-tight">Overview</h1>
+        <p class="text-slate-500 mt-1 flex items-center gap-2">
+          <i data-lucide="map-pin" class="w-4 h-4"></i> <span x-text="branch + ' · ' + tenant"></span>
+        </p>
+      </div>
+      <div class="text-right">
+        <div class="text-sm font-medium text-slate-500">System Time</div>
+        <div class="text-lg font-bold text-brand-600" x-text="new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})"></div>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="card p-5">
+        <div class="text-sm text-gray-500">Today's Sales</div>
+        <div class="text-3xl font-bold text-brand-700 mt-1" x-text="formatCurrency(kpis.today_sales)"></div>
+      </div>
+      <div class="card p-5">
+        <div class="text-sm text-gray-500">Transactions</div>
+        <div class="text-3xl font-bold mt-1" x-text="kpis.today_transactions"></div>
+      </div>
+      <div class="card p-5">
+        <div class="text-sm text-gray-500">Total Products</div>
+        <div class="text-3xl font-bold mt-1" x-text="kpis.total_products"></div>
+      </div>
+      <div class="card p-5">
+        <div class="text-sm text-gray-500">Low Stock Items</div>
+        <div class="text-3xl font-bold mt-1" :class="kpis.low_stock > 0 ? 'text-red-600' : 'text-green-600'" x-text="kpis.low_stock"></div>
+      </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      
+      <!-- Sales Trend (Spans 2 columns) -->
+      <div class="card p-6 lg:col-span-2">
+        <h2 class="font-semibold mb-4 text-gray-700">Sales Trend (Last 7 Days)</h2>
+        <div class="relative h-72 w-full">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Payment Methods -->
+      <div class="card p-6">
+        <h2 class="font-semibold mb-4 text-gray-700">Payment Methods</h2>
+        <div class="relative h-72 w-full flex justify-center">
+          <canvas id="paymentChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts Row 2 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      
+      <!-- Top Products -->
+      <div class="card p-6">
+        <h2 class="font-semibold mb-4 text-gray-700">Top Selling Products</h2>
+        <div class="relative h-64 w-full">
+          <canvas id="topProductsChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Inventory by Category -->
+      <div class="card p-6">
+        <h2 class="font-semibold mb-4 text-gray-700">Inventory by Category</h2>
+        <div class="relative h-64 w-full flex justify-center">
+          <canvas id="categoryChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+function dashboard() {
+  return {
+    branch: '', tenant: '', kpis: {},
+    chartsInitialized: false,
+
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      try {
+        const d = await apiFetch('/reports/dashboard/');
+        this.branch = d.branch || '';
+        this.tenant = d.tenant || '';
+        this.kpis = d.kpis;
+
+        // Wait for Alpine to render the canvas elements, then draw charts
+        this.$nextTick(() => {
+          this.renderCharts(d.charts);
+        });
+      } catch (e) { alert(e.message); }
+    },
+
+    renderCharts(data) {
+      // Colors
+      const brandColor = '#4f46e5';
+      const brandLight = 'rgba(79, 70, 229, 0.1)';
+      const palette = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
+
+      // 1. Trend Chart (Line)
+      const trendCtx = document.getElementById('trendChart').getContext('2d');
+      new Chart(trendCtx, {
+        type: 'line',
+        data: {
+          labels: data.trend.labels,
+          datasets: [{
+            label: 'Sales (K)',
+            data: data.trend.data,
+            borderColor: brandColor,
+            backgroundColor: brandLight,
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: brandColor,
+            pointRadius: 4,
+            pointHoverRadius: 6
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+
+      // 2. Payment Methods (Doughnut)
+      const payCtx = document.getElementById('paymentChart').getContext('2d');
+      new Chart(payCtx, {
+        type: 'doughnut',
+        data: {
+          labels: data.payments.labels.length ? data.payments.labels : ['No Data'],
+          datasets: [{
+            data: data.payments.data.length ? data.payments.data : [1],
+            backgroundColor: data.payments.data.length ? palette : ['#e5e7eb'],
+            borderWidth: 0,
+            hoverOffset: 4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          cutout: '70%',
+          plugins: {
+            legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } }
+          }
+        }
+      });
+
+      // 4. Products by Category (Doughnut)
+      const catCtx = document.getElementById('categoryChart').getContext('2d');
+      new Chart(catCtx, {
+        type: 'polarArea',
+        data: {
+          labels: data.category_breakdown.labels.length ? data.category_breakdown.labels : ['No Data'],
+          datasets: [{
+            data: data.category_breakdown.data.length ? data.category_breakdown.data : [1],
+            backgroundColor: data.category_breakdown.data.length ? palette : ['#e5e7eb'],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 8 } } }
+        }
+      });
+
+      // 3. Top Products (Bar)
+      const prodCtx = document.getElementById('topProductsChart').getContext('2d');
+      new Chart(prodCtx, {
+        type: 'bar',
+        data: {
+          labels: data.top_products.labels.length ? data.top_products.labels : ['No Sales'],
+          datasets: [{
+            label: 'Units Sold',
+            data: data.top_products.data.length ? data.top_products.data : [0],
+            backgroundColor: brandColor,
+            borderRadius: 4,
+            barThickness: 24
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { borderDash: [4, 4] } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Nimbus POS{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { 
+        extend: { 
+          colors: {
+            brand: { 50:'#eef2ff', 100:'#e0e7ff', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca' }
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+          }
+        } 
+      }
+    }
+  </script>
+  <!-- Alpine.js -->
+  <script defer src="https://unpkg.com/alpinejs@3.13.10/dist/cdn.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    [x-cloak] { display: none !important; }
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+    
+    /* Beautiful Inputs */
+    .input-field { 
+      width: 100%; padding: 0.6rem 0.875rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; 
+      font-size: 0.875rem; transition: all 0.2s; background-color: #ffffff;
+    }
+    .input-field:focus { 
+      outline: none; border-color: #6366f1; box-shadow: 0 0 0 4px rgba(99,102,241,0.1); 
+    }
+    
+    /* Polished Buttons */
+    .btn-primary { 
+      padding: 0.6rem 1.25rem; background: linear-gradient(to right, #4f46e5, #4338ca); 
+      color: #ffffff; border-radius: 0.5rem; font-weight: 500; font-size: 0.875rem; 
+      transition: all 0.2s; box-shadow: 0 2px 4px rgba(79,70,229,0.2); 
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 6px rgba(79,70,229,0.3); }
+    .btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; box-shadow: none; transform: none; }
+    
+    .btn-secondary { 
+      padding: 0.6rem 1.25rem; background: #ffffff; color: #475569; border: 1px solid #e2e8f0; 
+      border-radius: 0.5rem; font-weight: 500; font-size: 0.875rem; transition: all 0.2s; 
+    }
+    .btn-secondary:hover { background: #f8fafc; border-color: #cbd5e1; color: #1e293b; }
+    
+    /* Elegant Cards */
+    .card { 
+      background: #ffffff; border-radius: 0.75rem; border: 1px solid #e2e8f0; 
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.04); 
+    }
+    
+    /* Receipt Text */
+    .receipt-text { font-family: 'Courier New', monospace; white-space: pre-wrap; font-size: 12px; line-height: 1.5; }
+    
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* Animations */
+    .fade-in { animation: fadeIn 0.3s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+  
+  <script src="/static/pos/api.js"></script>
+  <script src="/static/pos/barcode.js" defer></script>
+</head>
+<body class="text-slate-800 antialiased">
+  {% block body %}{% endblock %}
+
+  <!-- Floating Notification Bell -->
+  <div class="fixed top-4 right-6 z-[9000]" x-data="notificationApp()" x-init="init()">
+    <div class="relative">
+      <button @click="toggleDropdown()" class="bg-white p-2.5 rounded-full shadow-lg border border-gray-200 hover:bg-gray-50 transition relative">
+        <i data-lucide="bell" class="w-5 h-5 text-slate-600"></i>
+        <span x-show="unreadCount > 0" 
+              class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white"
+              x-text="unreadCount"></span>
+      </button>
+
+      <!-- Dropdown -->
+      <div x-show="open" x-cloak @click.away="open = false" 
+           class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 overflow-hidden">
+        <div class="p-3 bg-gray-50 border-b flex justify-between items-center">
+          <span class="font-bold text-sm text-slate-700">Notifications</span>
+          <button @click="markAllRead()" class="text-xs text-brand-600 hover:underline">Mark all read</button>
+        </div>
+        
+        <div class="max-h-96 overflow-y-auto">
+          <template x-for="n in notifications" :key="n.id">
+            <a :href="n.link || '#'" @click.prevent="handleClick(n)" 
+               class="block p-4 border-b hover:bg-gray-50 transition"
+               :class="!n.is_read ? 'bg-blue-50/50' : ''">
+              <div class="flex items-start gap-3">
+                <div class="mt-1">
+                  <i data-lucide="alert-circle" class="w-4 h-4" :class="{
+                    'text-red-500': n.type === 'ERROR',
+                    'text-yellow-500': n.type === 'WARNING',
+                    'text-green-500': n.type === 'SUCCESS',
+                    'text-blue-500': n.type === 'INFO'
+                  }"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="flex justify-between items-start">
+                    <span class="font-bold text-sm text-slate-800" x-text="n.title"></span>
+                    <span class="text-[10px] text-gray-400" x-text="n.time"></span>
+                  </div>
+                  <p class="text-xs text-gray-600 mt-1" x-text="n.message"></p>
+                </div>
+              </div>
+            </a>
+          </template>
+          <div x-show="notifications.length === 0" class="p-6 text-center text-gray-400 text-sm">
+            No notifications
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function notificationApp() {
+      return {
+        open: false,
+        unreadCount: 0,
+        notifications: [],
+        
+        init() {
+          if (!localStorage.getItem('token')) return;
+          this.fetchNotifications();
+          // Poll every 60 seconds
+          setInterval(() => this.fetchNotifications(), 60000);
+        },
+
+        async fetchNotifications() {
+          try {
+            const res = await apiFetch('/auth/notifications/');
+            this.unreadCount = res.unread_count;
+            this.notifications = res.notifications;
+            // Re-render icons
+            setTimeout(() => { if(window.lucide) lucide.createIcons(); }, 50);
+          } catch(e) { /* Ignore polling errors */ }
+        },
+
+        toggleDropdown() {
+          this.open = !this.open;
+          if (this.open) this.fetchNotifications();
+        },
+
+        async handleClick(n) {
+          if (!n.is_read) {
+            await apiFetch('/auth/notifications/read/', { method: 'POST', body: JSON.stringify({ ids: [n.id] }) });
+            this.fetchNotifications();
+          }
+          if (n.link) window.location.href = n.link;
+        },
+
+        async markAllRead() {
+          await apiFetch('/auth/notifications/read/', { method: 'POST', body: JSON.stringify({}) });
+          this.fetchNotifications();
+        }
+      }
+    }
+  </script>
+
+  <script>
+    // Initialize Lucide icons on page load
+    document.addEventListener('DOMContentLoaded', () => { lucide.createIcons(); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+{% extends "pos/base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="invoicesPage()" x-init="load()">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Invoices</h1>
+      <button @click="exportCsv()" class="btn-secondary text-sm">Export CSV</button>
+    </div>
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+          <tr>
+            <th class="px-4 py-3">Invoice #</th>
+            <th class="px-4 py-3">Date</th>
+            <th class="px-4 py-3">Status</th>
+            <th class="px-4 py-3 text-right">Total</th>
+            <th class="px-4 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="inv in invoices" :key="inv.id">
+            <tr class="border-t hover:bg-gray-50">
+              <td class="px-4 py-3 font-mono text-xs" x-text="inv.invoice_number"></td>
+              <td class="px-4 py-3" x-text="formatDate(inv.created_at)"></td>
+              <td class="px-4 py-3">
+                <span :class="inv.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                      class="px-2 py-0.5 rounded-full text-xs" x-text="inv.status"></span>
+              </td>
+              <td class="px-4 py-3 text-right font-semibold" x-text="formatCurrency(inv.total)"></td>
+              <td class="px-4 py-3 text-right">
+                <button @click="printReceiptFor(inv.id)" class="text-xs text-brand-600 hover:underline">Print</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div x-show="invoices.length === 0" class="p-8 text-center text-gray-400">No invoices yet</div>
+    </div>
+  </div>
+</div>
+<script>
+function invoicesPage() {
+  return {
+    invoices: [],
+
+    async exportCsv() {
+      try {
+        const res = await fetch('/api/auth/export/invoices/', {
+          headers: { 'Authorization': `Token ${localStorage.getItem('token')}` }
+        });
+        if (!res.ok) throw new Error('Export failed');
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'invoices.csv';
+        a.click();
+      } catch (e) {
+        alert(e.message);
+      }
+    },
+
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      try { this.invoices = await apiFetch('/sales/invoices/'); }
+      catch (e) { alert(e.message); }
+    },
+    async printReceiptFor(id) {
+      try {
+        const r = await apiFetch(`/sales/invoices/${id}/receipt.txt`);
+        printReceipt(r.text);
+      } catch (e) { alert('Failed to load receipt'); }
+    }
+  }
+}
+</script>
+{% endblock %}

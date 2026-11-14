@@ -1,0 +1,90 @@
+{% extends "pos/base.html" %}
+{% block title %}Branches{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="branchesApp()" x-init="load()">
+    
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Branch Management</h1>
+        <p class="text-gray-500 text-sm mt-1">Manage all your store locations.</p>
+      </div>
+      <button @click="showModal = true; resetForm()" class="btn-primary">+ Add Branch</button>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-gray-50 text-left text-xs uppercase text-gray-500">
+          <tr>
+            <th class="px-4 py-3">Branch Name</th>
+            <th class="px-4 py-3">TPIN</th>
+            <th class="px-4 py-3">Phone</th>
+            <th class="px-4 py-3 text-center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="b in branches" :key="b.id">
+            <tr class="border-t hover:bg-gray-50">
+              <td class="px-4 py-3 font-bold text-slate-800" x-text="b.name"></td>
+              <td class="px-4 py-3 font-mono text-xs" x-text="b.tpin"></td>
+              <td class="px-4 py-3 text-gray-500" x-text="b.phone"></td>
+              <td class="px-4 py-3 text-center">
+                <span class="px-2 py-0.5 rounded text-xs" :class="b.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'" x-text="b.is_active ? 'Active' : 'Inactive'"></span>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Add Branch Modal -->
+    <template x-if="showModal">
+      <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6">
+          <h2 class="text-xl font-bold mb-4">Add New Branch</h2>
+          <form @submit.prevent="create()" class="space-y-3">
+            <input placeholder="Branch Name (e.g. Lusaka Mall)" x-model="form.name" class="input-field" required>
+            <input placeholder="ZRA TPIN" x-model="form.tpin" class="input-field" required>
+            <input placeholder="Phone Number" x-model="form.phone" class="input-field">
+            <textarea placeholder="Physical Address" x-model="form.address" class="input-field" rows="2"></textarea>
+            
+            <div class="flex gap-2 mt-4">
+              <button type="button" @click="showModal = false" class="btn-secondary flex-1">Cancel</button>
+              <button type="submit" class="btn-primary flex-1" :disabled="saving">Save Branch</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </template>
+
+  </div>
+</div>
+<script>
+function branchesApp() {
+  return {
+    branches: [], showModal: false, saving: false,
+    form: { name: '', tpin: '', phone: '', address: '' },
+
+    async load() {
+      if (!requireAuth()) return;
+      try { this.branches = await apiFetch('/auth/branches/manage/'); } catch(e) { alert(e.message); }
+    },
+
+    resetForm() {
+      this.form = { name: '', tpin: '', phone: '', address: '' };
+    },
+
+    async create() {
+      this.saving = true;
+      try {
+        await apiFetch('/auth/branches/manage/', { method: 'POST', body: JSON.stringify(this.form) });
+        this.showModal = false;
+        this.load();
+      } catch(e) { alert(e.response?.data?.error || e.message); }
+      finally { this.saving = false; }
+    }
+  }
+}
+</script>
+{% endblock %}

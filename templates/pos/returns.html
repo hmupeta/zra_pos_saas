@@ -1,0 +1,144 @@
+{% extends "pos/base.html" %}
+{% block title %}Returns{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="returnsApp()">
+    
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold">Returns & Refunds</h1>
+    </div>
+
+    <!-- Search Section -->
+    <div class="card p-6 mb-6" x-show="!selectedInvoice">
+      <label class="block text-sm font-medium mb-2">Search by Invoice Number</label>
+      <div class="flex gap-2">
+        <input type="text" x-model="searchQuery" @input.debounce.300ms="searchInvoices()" placeholder="e.g. 261113111140" class="input-field max-w-md">
+      </div>
+      
+      <div class="mt-4 space-y-2">
+        <template x-for="inv in searchResults" :key="inv.id">
+          <div @click="openInvoice(inv.id)" class="p-3 bg-gray-50 border rounded cursor-pointer hover:bg-gray-100 flex justify-between">
+            <div>
+              <span class="font-bold" x-text="inv.invoice_number"></span>
+              <span class="text-sm text-gray-500 ml-2" x-text="inv.date"></span>
+            </div>
+            <div class="font-semibold" x-text="formatCurrency(inv.total)"></div>
+          </div>
+        </template>
+        <div x-show="searchQuery.length > 0 && searchResults.length === 0" class="text-gray-500 text-sm mt-2">No invoices found.</div>
+      </div>
+    </div>
+
+    <!-- Return Processing Section -->
+    <div class="card p-6" x-show="selectedInvoice" x-cloak>
+      <div class="flex justify-between items-center mb-4 border-b pb-4">
+        <div>
+          <h2 class="text-xl font-bold" x-text="'Invoice: ' + selectedInvoice?.invoice_number"></h2>
+          <p class="text-sm text-gray-500">Select the items and quantities the customer is returning.</p>
+        </div>
+        <button @click="selectedInvoice = null" class="text-sm text-gray-500 hover:underline">Cancel</button>
+      </div>
+
+      <table class="w-full text-sm mb-6">
+        <thead class="bg-gray-50 text-left text-xs uppercase">
+          <tr><th class="p-2">Item</th><th class="p-2">Price</th><th class="p-2">Qty Sold</th><th class="p-2">Return Qty</th><th class="p-2 text-center">Restock?</th></tr>
+        </thead>
+        <tbody>
+          <template x-for="item in selectedInvoice.items" :key="item.id">
+            <tr class="border-t">
+              <td class="p-2 font-medium" x-text="item.name"></td>
+              <td class="p-2" x-text="formatCurrency(item.price)"></td>
+              <td class="p-2" x-text="item.qty_sold"></td>
+              <td class="p-2">
+                <input type="number" step="0.01" min="0" :max="item.qty_sold" x-model.number="returnQtys[item.id]" class="input-field w-24 py-1 text-sm">
+              </td>
+              <td class="p-2 text-center">
+                <input type="checkbox" x-model="restockFlags[item.id]" class="w-4 h-4 text-brand-600 rounded">
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+
+      <div class="flex justify-end items-center gap-4 border-t pt-4">
+        <div class="text-right">
+          <div class="text-sm text-gray-500">Total Refund Amount</div>
+          <div class="text-2xl font-bold text-red-600" x-text="formatCurrency(calculateRefundTotal())"></div>
+        </div>
+        <button @click="processReturn()" class="btn-primary bg-red-600 hover:bg-red-700" :disabled="calculateRefundTotal() === 0">Process Refund</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script>
+function returnsApp() {
+  return {
+    searchQuery: '', searchResults: [], selectedInvoice: null,
+    returnQtys: {}, restockFlags: {},
+
+    async searchInvoices() {
+      if (this.searchQuery.length < 2) { this.searchResults = []; return; }
+      try {
+        this.searchResults = await apiFetch(`/returns/search/?q=${this.searchQuery}`);
+      } catch (e) { alert(e.message); }
+    },
+
+    async openInvoice(id) {
+      try {
+        this.selectedInvoice = await apiFetch(`/returns/invoice/${id}/`);
+        this.returnQtys = {};
+        this.restockFlags = {};
+        // Initialize defaults
+        this.selectedInvoice.items.forEach(i => {
+          this.returnQtys[i.id] = 0;
+          this.restockFlags[i.id] = true;
+        });
+      } catch (e) { alert(e.message); }
+    },
+
+    calculateRefundTotal() {
+      if (!this.selectedInvoice) return 0;
+      let total = 0;
+      this.selectedInvoice.items.forEach(i => {
+        const qty = this.returnQtys[i.id] || 0;
+        total += qty * i.price;
+      });
+      return total;
+    },
+
+    async processReturn() {
+      if (!confirm('Are you sure you want to process this refund? This will restock inventory and adjust the accounting books.')) return;
+      
+      const itemsToReturn = [];
+      this.selectedInvoice.items.forEach(i => {
+        const qty = this.returnQtys[i.id] || 0;
+        if (qty > 0) {
+          itemsToReturn.push({
+            invoice_item_id: i.id,
+            quantity: qty,
+            restock: this.restockFlags[i.id]
+          });
+        }
+      });
+
+      try {
+        const res = await apiFetch('/returns/process/', {
+          method: 'POST',
+          body: JSON.stringify({ 
+            invoice_id: this.selectedInvoice.id,
+            items: itemsToReturn,
+            refund_method: 'CASH'
+          })
+        });
+        alert(`Refund Processed Successfully!\nRef: ${res.return_number}\nAmount: ${formatCurrency(res.total_refund)}`);
+        this.selectedInvoice = null;
+        this.searchQuery = '';
+        this.searchResults = [];
+      } catch (e) { alert(e.response?.data?.error || e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

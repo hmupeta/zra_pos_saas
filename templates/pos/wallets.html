@@ -1,0 +1,75 @@
+{% extends "pos/base.html" %}
+{% block title %}Consolidated Wallets{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="walletApp()" x-init="load()">
+    
+    <div class="flex justify-between items-center mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Consolidated Wallets</h1>
+        <p class="text-gray-500 text-sm mt-1">Track cash and mobile money across all your branches.</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8" x-show="data">
+      <div class="card p-5 border-l-4 border-green-500 bg-gradient-to-br from-green-50 to-white">
+        <div class="text-sm font-medium text-gray-500 mb-1">Total Cash Collected</div>
+        <div class="text-2xl font-bold text-slate-900" x-text="formatCurrency(data?.summary.total_cash)"></div>
+      </div>
+      <div class="card p-5 border-l-4 border-yellow-400 bg-gradient-to-br from-yellow-50 to-white">
+        <div class="text-sm font-medium text-gray-500 mb-1">Total MoMo Collected</div>
+        <div class="text-2xl font-bold text-slate-900" x-text="formatCurrency(data?.summary.total_momo)"></div>
+      </div>
+      <div class="card p-5 border-l-4 border-indigo-500 bg-gradient-to-br from-indigo-50 to-white">
+        <div class="text-sm font-medium text-gray-500 mb-1">Total Card Collected</div>
+        <div class="text-2xl font-bold text-slate-900" x-text="formatCurrency(data?.summary.total_card)"></div>
+      </div>
+      <div class="card p-5 bg-slate-900 text-white">
+        <div class="text-sm font-medium text-slate-300 mb-1">Grand Total (All Time)</div>
+        <div class="text-2xl font-bold" x-text="formatCurrency(data?.summary.grand_total)"></div>
+      </div>
+    </div>
+
+    <div class="card overflow-hidden" x-show="data">
+      <div class="p-4 border-b bg-gray-50">
+        <h2 class="font-bold text-slate-700">Revenue by Branch</h2>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="bg-gray-100 text-left text-xs uppercase text-gray-500">
+          <tr>
+            <th class="px-6 py-3">Branch Name</th>
+            <th class="px-6 py-3 text-right">Cash</th>
+            <th class="px-6 py-3 text-right">MoMo</th>
+            <th class="px-6 py-3 text-right">Card</th>
+            <th class="px-6 py-3 text-right font-bold">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="b in data?.branches" :key="b.id">
+            <tr class="border-t hover:bg-gray-50">
+              <td class="px-6 py-4 font-bold text-slate-800" x-text="b.name"></td>
+              <td class="px-6 py-4 text-right text-gray-600" x-text="formatCurrency(b.cash)"></td>
+              <td class="px-6 py-4 text-right text-gray-600" x-text="formatCurrency(b.momo)"></td>
+              <td class="px-6 py-4 text-right text-gray-600" x-text="formatCurrency(b.card)"></td>
+              <td class="px-6 py-4 text-right font-bold text-brand-700" x-text="formatCurrency(b.total)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+<script>
+function walletApp() {
+  return {
+    data: null,
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      try { this.data = await apiFetch('/payments/wallets/'); } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}

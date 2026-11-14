@@ -1,0 +1,82 @@
+{% extends "pos/base.html" %}
+{% block title %}Gateway Config{% endblock %}
+{% block body %}
+<div class="h-screen flex bg-slate-50">
+  <aside class="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-2xl z-20">
+    <div class="h-16 flex items-center px-6 border-b border-slate-800 bg-slate-950/50">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center text-white shadow-lg"><i data-lucide="shield" class="w-5 h-5"></i></div>
+        <div><div class="font-bold text-white tracking-wide text-lg">Nimbus HQ</div><div class="text-[10px] text-slate-400 uppercase tracking-wider">Platform Admin</div></div>
+      </div>
+    </div>
+    <nav class="flex-1 py-6 px-4 space-y-1">
+      <a href="/platform" class="nav-link"><i data-lucide="layout-dashboard" class="w-4 h-4 mr-3"></i> Overview</a>
+      <a href="/platform/tenants" class="nav-link"><i data-lucide="building" class="w-4 h-4 mr-3"></i> Tenants</a>
+      <a href="/platform/applications" class="nav-link"><i data-lucide="file-text" class="w-4 h-4 mr-3"></i> Applications</a>
+      <a href="/platform/billing" class="nav-link"><i data-lucide="credit-card" class="w-4 h-4 mr-3"></i> Billing</a>
+      <a href="/platform/gateways" class="nav-link active"><i data-lucide="settings" class="w-4 h-4 mr-3"></i> Gateways</a>
+    </nav>
+  </aside>
+
+  <div class="flex-1 overflow-y-auto p-8" x-data="gatewaysApp()" x-init="load()">
+    <h1 class="text-2xl font-bold mb-6">SaaS Payment Gateways</h1>
+    <p class="text-gray-500 mb-8">Configure how your platform collects subscription money from tenants.</p>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- MTN MoMo -->
+      <div class="card p-6 border-t-4 border-yellow-400">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="font-bold text-lg flex items-center gap-2"><i data-lucide="smartphone" class="text-yellow-600"></i> MTN MoMo</h2>
+          <input type="checkbox" x-model="configs.MTN.is_enabled" class="w-5 h-5">
+        </div>
+        <form @submit.prevent="save('MTN')" class="space-y-3">
+          <input placeholder="Subscription Key" x-model="configs.MTN.mtn_subscription_key" class="input-field">
+          <input placeholder="API User" x-model="configs.MTN.mtn_api_user" class="input-field">
+          <input placeholder="API Key" x-model="configs.MTN.mtn_api_key" class="input-field">
+          <select x-model="configs.MTN.mtn_target_env" class="input-field">
+            <option value="sandbox">Sandbox</option>
+            <option value="production">Production</option>
+          </select>
+          <button type="submit" class="btn-primary w-full">Save MTN Config</button>
+        </form>
+      </div>
+
+      <!-- Stripe -->
+      <div class="card p-6 border-t-4 border-indigo-500">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="font-bold text-lg flex items-center gap-2"><i data-lucide="credit-card" class="text-indigo-600"></i> Stripe / Card</h2>
+          <input type="checkbox" x-model="configs.STRIPE.is_enabled" class="w-5 h-5">
+        </div>
+        <form @submit.prevent="save('STRIPE')" class="space-y-3">
+          <input placeholder="Publishable Key" x-model="configs.STRIPE.api_key" class="input-field">
+          <input placeholder="Secret Key" x-model="configs.STRIPE.secret_key" class="input-field">
+          <button type="submit" class="btn-primary w-full">Save Stripe Config</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function gatewaysApp() {
+  return {
+    configs: {
+      MTN: { provider: 'MTN', is_enabled: false, mtn_subscription_key: '', mtn_api_user: '', mtn_api_key: '', mtn_target_env: 'sandbox' },
+      STRIPE: { provider: 'STRIPE', is_enabled: false, api_key: '', secret_key: '' }
+    },
+    async load() {
+      try {
+        const res = await apiFetch('/saas/admin/gateways/');
+        res.forEach(c => { if (this.configs[c.provider]) this.configs[c.provider] = c; });
+      } catch(e) { alert(e.message); }
+    },
+    async save(provider) {
+      try {
+        await apiFetch('/saas/admin/gateways/', { method: 'POST', body: JSON.stringify(this.configs[provider]) });
+        alert('Configuration saved!');
+        this.load();
+      } catch(e) { alert(e.message); }
+    }
+  }
+}
+</script>
+{% endblock %}
