@@ -44,13 +44,15 @@ def run():
         company=tenant_company, branch_code="HQ", defaults={"name": "Main Branch"}
     )
 
-    # 5. Create Users
+     # 5. Create Users
     if not User.objects.filter(username='admin').exists():
-        User.objects.create_superuser('admin', 'admin@example.com', 'Admin@123456', company=tenant_company, branch=branch, tenant=pos_tenant)
+        # REMOVED branch=branch
+        User.objects.create_superuser('admin', 'admin@example.com', 'Admin@123456', company=tenant_company, tenant=pos_tenant)
         print("Created admin")
 
     if not User.objects.filter(username='demo_owner').exists():
-        User.objects.create_user('demo_owner', 'demo@example.com', 'Demo@123456', company=tenant_company, branch=branch, tenant=pos_tenant, is_staff=True)
+        # REMOVED branch=branch
+        User.objects.create_user('demo_owner', 'demo@example.com', 'Demo@123456', company=tenant_company, tenant=pos_tenant, is_staff=True)
         print("Created demo_owner")
 
     # 6. Seed POS Data
