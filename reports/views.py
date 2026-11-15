@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from sales.models import Invoice, InvoiceItem
 from inventory.models import Product
 from core.isolation import branch_filter
+from subscriptions.permissions import requires_plan_feature
 
 
 @api_view(["GET"])
@@ -171,6 +172,7 @@ def sales_by_category(request):
 
 
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def cash_flow_statement(request):

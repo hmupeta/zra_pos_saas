@@ -7,6 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Account, Journal, JournalLine
 
+from subscriptions.permissions import requires_plan_feature
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def accounts_list(request):
@@ -16,6 +18,7 @@ def accounts_list(request):
         "balance": float(a.balance()),
     } for a in qs])
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def trial_balance(request):
@@ -50,6 +53,7 @@ def trial_balance(request):
         "balanced": round(total_dr, 2) == round(total_cr, 2),
     })
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def balance_sheet(request):
@@ -72,6 +76,7 @@ def balance_sheet(request):
         "balanced": round(assets, 2) == round(liabilities + equity + net_income, 2),
     })
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def income_statement(request):
@@ -91,6 +96,7 @@ def income_statement(request):
         "margin_percent": float(margin),
     })
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def journals_list(request):
@@ -137,6 +143,7 @@ def journals_list(request):
         
     return Response({"success": True, "journal_id": journal.id})
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def general_ledger(request, account_id):
@@ -171,6 +178,7 @@ from .models import Expense
 from django.utils import timezone
 import datetime
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def expenses_list(request):
@@ -227,6 +235,7 @@ def expenses_list(request):
 
     return Response({"success": True, "id": expense.id})
 
+@requires_plan_feature("has_full_accounting")
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def expense_accounts(request):

@@ -15,6 +15,10 @@ class Shift(models.Model):
     variance = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     is_closed = models.BooleanField(default=False)
 
+    zreport_number = models.CharField(max_length=50, blank=True, db_index=True)
+    zreport_submitted_at = models.DateTimeField(null=True, blank=True)
+    zreport_qr_data = models.TextField(blank=True)
+
 
 class Invoice(models.Model):
     STATUS = [("PENDING", "Pending"), ("PAID", "Paid"), ("VOID", "Void")]
@@ -31,6 +35,16 @@ class Invoice(models.Model):
     discount_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS, default="PENDING")
+
+    zra_status = models.CharField(
+        max_length=20,
+        choices=[("PENDING","Pending"),("SUBMITTED","Submitted"),
+                 ("FAILED","Failed"),("OFFLINE_QUEUED","Offline queued")],
+        default="PENDING", db_index=True,
+        help_text="Fiscalization lifecycle status",
+    )
+    zra_submitted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    zra_qr_data = models.TextField(blank=True, help_text="Full QR / signed payload from VSDC")
     payment_method = models.CharField(max_length=20, default="CASH")
     zra_validation_code = models.CharField(max_length=100, blank=True)
     zra_receipt_number = models.CharField(max_length=100, blank=True)

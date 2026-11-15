@@ -13,6 +13,18 @@ class Plan(models.Model):
     has_api_access = models.BooleanField(default=False)
     has_multi_branch_reports = models.BooleanField(default=False)
     
+    # Phase 2A feature flags
+    has_pos                  = models.BooleanField(default=True)
+    has_inventory            = models.BooleanField(default=True)
+    has_zra_smart_invoice    = models.BooleanField(default=True)
+    has_full_accounting      = models.BooleanField(default=False)
+    has_dedicated_manager    = models.BooleanField(default=False)
+    has_custom_sla           = models.BooleanField(default=False)
+
+    def has(self, feature: str) -> bool:
+        """Convenience helper: plan.has('has_full_accounting')"""
+        return bool(getattr(self, feature, False))
+
     def __str__(self):
         return self.name
 
