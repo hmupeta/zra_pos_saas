@@ -2,8 +2,28 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponse
+import os
+import subprocess
+import sys
+
+# --- TEMPORARY SEED TRIGGER ---
+def run_seed(request):
+    if os.environ.get('RENDER') != 'true':
+        return HttpResponse("Only works in production")
+    try:
+        # Run the seed script we created earlier
+        result = subprocess.run([sys.executable, 'seed_production.py'], capture_output=True, text=True)
+        if result.returncode == 0:
+            return HttpResponse(f"<h1>Seed Successful!</h1><pre>{result.stdout}</pre><p>You can now log in with demo_owner / Demo@123456. <strong>DELETE THIS URL NOW.</strong></p>")
+        else:
+            return HttpResponse(f"<h1>Seed Failed</h1><pre>{result.stderr}</pre>")
+    except Exception as e:
+        return HttpResponse(f"<h1>Error</h1><pre>{str(e)}</pre>")
+# ------------------------------
 
 urlpatterns = [
+    path('trigger-seed/', run_seed), # <--- ADDED TEMPORARY ROUTE
     path('', include('core.urls_web')),
     path("admin/", admin.site.urls),
     path("api/auth/", include("core.urls")),
