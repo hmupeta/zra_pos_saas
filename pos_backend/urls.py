@@ -20,10 +20,12 @@ urlpatterns = [
     path("api/accounting/", include("accounting.urls")),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
 # -- Phase 2: subscriptions --
 from django.urls import path as _ph_path, include as _ph_inc
 from subscriptions import urls as _sub_urls
 urlpatterns += [_ph_path("api/subscriptions/", _ph_inc(_sub_urls))]
+
+# Serve static and media files during local development
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

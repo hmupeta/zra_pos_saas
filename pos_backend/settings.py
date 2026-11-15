@@ -1,12 +1,24 @@
+import os
+import dj_database_url
 from pathlib import Path
 from decouple import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# --- ENVIRONMENT DETECTION ---
+# Render automatically sets RENDER='true' in its environment
+IS_PRODUCTION = os.environ.get('RENDER') == 'true'
+
+# --- SECURITY ---
 SECRET_KEY = config("SECRET_KEY", default="django-insecure-change-this-in-production")
 DEBUG = config("DEBUG", default=True, cast=bool)
-ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
 
+if IS_PRODUCTION:
+    ALLOWED_HOSTS = ['.onrender.com']
+else:
+    ALLOWED_HOSTS = config("ALLOWED_HOSTS", default="localhost,127.0.0.1").split(",")
+
+# --- APPLICATIONS ---
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -37,8 +49,11 @@ INSTALLED_APPS = [
     "security",
 ]
 
+# --- MIDDLEWARE ---
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # WhiteNoise only in production (Render)
+    *(['whitenoise.middleware.WhiteNoiseMiddleware'] if IS_PRODUCTION else []),
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -66,22 +81,29 @@ TEMPLATES = [{
 
 WSGI_APPLICATION = "pos_backend.wsgi.application"
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "zra_pos_saas",
-        "USER": "pos_user",
-        "PASSWORD": "Stacy2026!",
-        "HOST": "localhost",
-        "PORT": "5432",
-        "OPTIONS": {
-            "connect_timeout": 10,
-        },
-        "CONN_MAX_AGE": 60,
-        "ATOMIC_REQUESTS": False,
+# --- DATABASE ---
+if IS_PRODUCTION:
+    # PRODUCTION (Render/Neon): Uses the DATABASE_URL injected by Render
+    DATABASES = {
+        'default': dj_database_url.config(conn_max_age=600, conn_health_checks=True)
     }
-}
+else:
+    # LOCAL: Uses your local .env variables or defaults to localhost Postgres
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": config("DB_NAME", default="zra_pos_saas"),
+            "USER": config("DB_USER", default="pos_user"),
+            "PASSWORD": config("DB_PASSWORD", default="Stacy2026!"),
+            "HOST": config("DB_HOST", default="localhost"),
+            "PORT": config("DB_PORT", default="5432"),
+            "OPTIONS": {"connect_timeout": 10},
+            "CONN_MAX_AGE": 60,
+            "ATOMIC_REQUESTS": False,
+        }
+    }
 
+# --- CACHES ---
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
@@ -89,6 +111,7 @@ CACHES = {
     }
 }
 
+# --- AUTHENTICATION ---
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
@@ -104,15 +127,21 @@ TIME_ZONE = "Africa/Lusaka"
 USE_I18N = True
 USE_TZ = True
 
+# --- STATIC & MEDIA ---
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+STATICFILES_DIRS = [BASE_DIR / "static"]  # This allows local dev to find your JS files
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# WhiteNoise Compression (Production only)
+if IS_PRODUCTION:
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# --- CORS & REST FRAMEWORK ---
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
 
@@ -128,10 +157,10 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 50,
 }
 
+# --- EMAIL & SMS ---
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="noreply@yourstore.com")
 
-# SMS
 AFRICASTALKING_USERNAME = config("AFRICASTALKING_USERNAME", default="")
 AFRICASTALKING_API_KEY = config("AFRICASTALKING_API_KEY", default="")
 

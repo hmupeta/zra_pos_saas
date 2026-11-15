@@ -8,9 +8,25 @@ function getUser() {
   catch { return null; }
 }
 
+// Helper to get CSRF token from cookies (Crucial for Django)
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+
 async function apiFetch(path, options = {}) {
-  
   const isFormData = options.body instanceof FormData;
+  
   const headers = { 
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }), 
     ...(options.headers || {}) 
@@ -18,37 +34,53 @@ async function apiFetch(path, options = {}) {
 
   const token = getToken();
   if (token) headers.Authorization = `Token ${token}`;
+  
   const branchId = getBranchId();
   if (branchId) headers['X-Branch-ID'] = branchId;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-
-  if (res.status === 401) {
-    localStorage.clear();
-    if (location.pathname !== '/login') location.href = '/login';
-    throw new Error('Unauthorized');
-  }
-
-  const text = await res.text();
-  let data = null;
-  
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      // If it's not JSON, it's likely an HTML error page (500/404)
-      console.error("Non-JSON response received:", text.substring(0, 200));
-      if (!res.ok) throw new Error(`Server Error (${res.status}). Check console.`);
-      return text;
+  // Add CSRF Token for state-changing requests
+  const method = (options.method || 'GET').toUpperCase();
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const csrfToken = getCookie('csrftoken');
+    if (csrfToken) {
+      headers['X-CSRFToken'] = csrfToken;
     }
   }
 
-  if (!res.ok) {
-    const err = new Error((data && data.error) || `HTTP ${res.status}`);
-    err.response = { status: res.status, data };
-    throw err;
+  try {
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+    if (res.status === 401) {
+      localStorage.clear();
+      if (location.pathname !== '/login') location.href = '/login';
+      throw new Error('Unauthorized');
+    }
+
+    const text = await res.text();
+    let data = null;
+    
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        // If it's not JSON, it's likely an HTML error page (500/404)
+        console.error("Non-JSON response received:", text.substring(0, 200));
+        if (!res.ok) throw new Error(`Server Error (${res.status}). Check console.`);
+        return text;
+      }
+    }
+
+    if (!res.ok) {
+      const err = new Error((data && data.error) || `HTTP ${res.status}`);
+      err.response = { status: res.status, data };
+      throw err;
+    }
+    return data;
+  } catch (error) {
+    // Catch network errors (like CSRF blocks that prevent response)
+    console.error("apiFetch network error:", error);
+    throw error;
   }
-  return data;
 }
 
 function requireAuth() {
