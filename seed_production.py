@@ -16,7 +16,7 @@ User = get_user_model()
 def run():
     print("Starting production seed...")
     
-    # 1. Create Plans
+    # 1. Create Plans (SaaS level)
     basic_plan, _ = Plan.objects.get_or_create(
         name="Basic", defaults={"price_zmw": 500, "max_branches": 1, "max_users": 5}
     )
@@ -24,42 +24,61 @@ def run():
         name="Professional", defaults={"price_zmw": 1500, "max_branches": 5, "max_users": 25, "has_full_accounting": True}
     )
 
-    # 2. Create Tenant Company (SaaS Level)
+    # 2. Create Tenant (Core Level)
+    pos_tenant, _ = Tenant.objects.get_or_create(
+        code="DEMO", defaults={"name": "Demo Store Ltd"}
+    )
+
+    # 3. Create Company (Core Level - Represents the physical branch)
+    pos_company, _ = CoreCompany.objects.get_or_create(
+        tenant=pos_tenant,
+        branch_code="HQ",
+        defaults={
+            "name": "Demo Store HQ", 
+            "tpin": "TEST000001"
+        }
+    )
+
+    # 4. Create SaaS Company & Subscription (Tenant Level)
     tenant_company, _ = TenantCompany.objects.get_or_create(
         tpin="TEST000001", defaults={"name": "Demo Store Ltd"}
     )
     Subscription.objects.get_or_create(company=tenant_company, defaults={"plan": pro_plan})
     TenantUsage.objects.get_or_create(company=tenant_company)
-
-    # 3. Create Core Company and Tenant (POS Level)
-    # Using get_or_create for Tenant to ensure it exists
-    pos_tenant, _ = Tenant.objects.get_or_create(name="Demo Store Ltd")
-    pos_company, _ = CoreCompany.objects.get_or_create(
-        name="Demo Store Ltd", 
-        defaults={"tenant": pos_tenant, "tpin": "TEST000001"}
-    )
-
-    # 4. Create Branch
-    branch, _ = Branch.objects.get_or_create(
+    
+    # Create SaaS Branch
+    saas_branch, _ = Branch.objects.get_or_create(
         company=tenant_company, branch_code="HQ", defaults={"name": "Main Branch"}
     )
 
-     # 5. Create Users
+    # 5. Create Users (No 'branch' field, just 'company' and 'tenant')
     if not User.objects.filter(username='admin').exists():
-        # REMOVED branch=branch
-        User.objects.create_superuser('admin', 'admin@example.com', 'Admin@123456', company=tenant_company, tenant=pos_tenant)
+        User.objects.create_superuser(
+            'admin', 'admin@example.com', 'Admin@123456', 
+            company=pos_company, tenant=pos_tenant, user_type='PLATFORM_ADMIN'
+        )
         print("Created admin")
 
     if not User.objects.filter(username='demo_owner').exists():
-        # REMOVED branch=branch
-        User.objects.create_user('demo_owner', 'demo@example.com', 'Demo@123456', company=tenant_company, tenant=pos_tenant, is_staff=True)
+        User.objects.create_user(
+            'demo_owner', 'demo@example.com', 'Demo@123456', 
+            company=pos_company, tenant=pos_tenant, user_type='OWNER', is_staff=True
+        )
         print("Created demo_owner")
 
     # 6. Seed POS Data
-    tax, _ = TaxRate.objects.get_or_create(name="VAT 16%", defaults={"rate": Decimal("16.00"), "company": pos_company, "tenant": pos_tenant})
-    category, _ = Category.objects.get_or_create(name="Beverages", defaults={"company": pos_company, "tenant": pos_tenant})
+    # TaxRate only requires tenant, name, rate, tax_type
+    tax, _ = TaxRate.objects.get_or_create(
+        tenant=pos_tenant, name="VAT 16%", 
+        defaults={"rate": Decimal("16.00"), "tax_type": "VAT", "zra_tax_code": "A"}
+    )
+    
+    # Category requires tenant, company, name
+    category, _ = Category.objects.get_or_create(
+        tenant=pos_tenant, company=pos_company, name="Beverages"
+    )
 
-    # Updated to match your actual Product fields (barcode, current_stock)
+    # Product fields verified
     products = [
         {"name": "Coca-Cola 500ml", "price": Decimal("10.00"), "barcode": "COKE500"},
         {"name": "Fanta Orange 500ml", "price": Decimal("10.00"), "barcode": "FANTA500"},
@@ -68,16 +87,16 @@ def run():
     
     for p in products:
         Product.objects.get_or_create(
-            company=pos_company,
             tenant=pos_tenant,
-            barcode=p["barcode"], # <--- Changed from sku to barcode
+            company=pos_company,
+            barcode=p["barcode"],
             defaults={
                 "name": p["name"],
                 "selling_price": p["price"],
-                "unit_cost": p["price"] * Decimal("0.8"), # <--- Changed cost_price to unit_cost
+                "unit_cost": p["price"] * Decimal("0.8"),
                 "category": category,
                 "tax_rate": tax,
-                "current_stock": 100 # <--- Changed stock_quantity to current_stock
+                "current_stock": 100
             }
         )
     
