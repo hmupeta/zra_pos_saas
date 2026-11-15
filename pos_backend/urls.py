@@ -22,7 +22,20 @@ def run_seed(request):
         return HttpResponse(f"<h1>Error</h1><pre>{str(e)}</pre>")
 # ------------------------------
 
+
+from django.http import HttpResponse
+import subprocess
+import sys
+
+def run_patch(request):
+    if os.environ.get('RENDER') != 'true':
+        return HttpResponse("Only works in production")
+    result = subprocess.run([sys.executable, 'patch_branch.py'], capture_output=True, text=True)
+    return HttpResponse(f"<h1>Patch Result</h1><pre>{result.stdout}</pre>")
+
+# --- TEMP TRIGGERS ---
 urlpatterns = [
+    path('trigger-patch/', run_patch),
     path('trigger-seed/', run_seed), # <--- ADDED TEMPORARY ROUTE
     path('', include('core.urls_web')),
     path("admin/", admin.site.urls),
