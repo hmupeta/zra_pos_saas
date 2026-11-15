@@ -1,53 +1,38 @@
-# core/middleware.py
-from django.utils.deprecation import MiddlewareMixin
-from core.models import Company
-from rest_framework.authentication import TokenAuthentication
-from rest_framework.exceptions import AuthenticationFailed
+from django.http import JsonResponse
+from core.models import BranchAccess
 
+class StrictBranchMiddleware:
+    """Forces Cashiers and Managers to only access their assigned branch."""
+    def __init__(self, get_response):
+        self.get_response = get_response
 
-class TenantBranchMiddleware(MiddlewareMixin):
-    def process_request(self, request):
-        request.tenant = None
-        request.branch = None
-        request.accessible_branches = []
+    def __call__(self, request):
+        if request.path.startswith('/api/') and request.user.is_authenticated:
+            user = request.user
+            
+            # Owners and Admins can switch branches freely
+            if user.user_type in ('TENANT_OWNER', 'PLATFORM_ADMIN') or user.is_superuser:
+                return self.get_response(request)
 
-        user = getattr(request, "user", None)
+            # For Cashiers, Managers, Finance, force their assigned branch
+            if user.user_type in ('CASHIER', 'MANAGER', 'SALES_AGENT', 'ACCOUNTANT', 'FINANCE_MANAGER'):
+                assigned_access = BranchAccess.objects.filter(user=user).first()
+                if assigned_access:
+                    # Overwrite whatever the frontend sent with the forced branch ID
+                    request.META['HTTP_X_BRANCH_ID'] = str(assigned_access.company.id)
+                else:
+                    return JsonResponse({"error": "No branch assigned to your account. Contact your manager."}, status=403)
 
-        # --- FIX: Manually check DRF Token Auth in middleware ---
-        if not user or not user.is_authenticated:
-            try:
-                auth = TokenAuthentication()
-                user_auth_tuple = auth.authenticate(request)
-                if user_auth_tuple:
-                    request.user = user_auth_tuple[0]
-                    request.auth = user_auth_tuple[1]
-                    user = request.user
-            except AuthenticationFailed:
-                pass
-        # --------------------------------------------------------
+        return self.get_response(request)
 
-        if not user or not user.is_authenticated:
-            return None
+class PlatformAdminIsolationMiddleware:
+    """Blocks Platform Admins from accessing tenant POS data."""
+    def __init__(self, get_response):
+        self.get_response = get_response
 
-        request.tenant = getattr(user, "tenant", None)
-        
-        if not request.tenant:
-            return None
-
-        # Active branch resolution
-        branch_id = request.session.get("branch_id") or request.META.get("HTTP_X_BRANCH_ID")
-
-        qs = user.branch_access.filter(company__tenant=request.tenant, company__is_active=True).select_related("company")
-        request.accessible_branches = [ba.company for ba in qs]
-
-        if branch_id:
-            branch = Company.objects.filter(pk=branch_id, tenant=request.tenant).first()
-            if branch and branch in request.accessible_branches:
-                request.branch = branch
-        if not request.branch:
-            default = qs.filter(is_default=True).first()
-            request.branch = default.company if default else (
-                request.accessible_branches[0] if request.accessible_branches else None
-            )
-
-        return None
+    def __call__(self, request):
+        if request.user.is_authenticated and request.user.user_type == 'PLATFORM_ADMIN':
+            tenant_api_paths = ['/api/inventory/', '/api/sales/', '/api/customers/', '/api/payments/', '/api/pos/']
+            if any(request.path.startswith(path) for path in tenant_api_paths):
+                return JsonResponse({"error": "Platform Admins do not have access to tenant store data."}, status=403)
+        return self.get_response(request)
