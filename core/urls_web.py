@@ -44,4 +44,5 @@ urlpatterns = [
     path("admin/plans", views_web.admin_plans_page, name="admin_plans_page"),
     path("admin/billing", views_web.admin_billing_page, name="admin_billing_page"),
     path("invoices/<int:pk>", views_web.invoice_detail_page, name="invoice_detail_page"),
+     path("privacy-policy/", views_web.privacy_policy_page, name="privacy_policy"),
 ]

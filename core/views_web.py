@@ -156,3 +156,6 @@ def reservations_page(request):
 
 def invoice_detail_page(request, pk):
     return render(request, "pos/invoice_detail.html", {"invoice_id": pk})
+
+def privacy_policy_page(request):
+    return render(request, "pos/privacy_policy.html")
