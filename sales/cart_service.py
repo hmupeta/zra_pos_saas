@@ -1,11 +1,14 @@
 import uuid
 import datetime
+import logging
 from decimal import Decimal
 from django.core.cache import cache
 from django.db import transaction
 from .models import Invoice, InvoiceItem
 from inventory.models import Product
 from inventory.services import BarcodeService
+
+logger = logging.getLogger(__name__)
 
 CART_TTL = 4 * 3600
 
@@ -117,6 +120,7 @@ class CartService:
         if not customer_id or customer_id == "":
             customer_id = None
 
+        # Start as PENDING so we can control when to mark it PAID
         invoice = Invoice.objects.create(
             invoice_number=inv_num, tenant_id=tenant_id, company_id=branch_id,
             shift=shift, cashier=cashier,
@@ -125,15 +129,20 @@ class CartService:
             customer_id=customer_id,
             subtotal=totals["subtotal"], tax_total=totals["tax_total"],
             discount_total=totals.get("discount_amount", 0),
-            total=totals["total"], status="PAID", payment_method=main_method,
+            total=totals["total"], status="PENDING", payment_method=main_method,
+            zra_status="PENDING",
         )
 
         # Create Payment Transactions
         from payments.models import PaymentTransaction
-        for p in payments_data:
+        for idx, p in enumerate(payments_data, start=1):
             PaymentTransaction.objects.create(
-                invoice=invoice, payment_method=p["method"],
-                amount=Decimal(str(p["amount"])), status="SUCCESS"
+                tenant_id=tenant_id,
+                invoice=invoice,
+                payment_method=p["method"],
+                amount=Decimal(str(p["amount"])),
+                status="SUCCESS",
+                reference=p.get("reference") or f"POS-{inv_num}-{idx}",
             )
 
         # Create Invoice Items & Update Stock
@@ -184,6 +193,32 @@ class CartService:
             JournalLine.objects.create(journal=journal, account=sales_acct, credit=invoice.subtotal)
             if invoice.tax_total > 0:
                 JournalLine.objects.create(journal=journal, account=vat_acct, credit=invoice.tax_total)
+
+        # --- ZRA VSDC SUBMISSION (With Offline Fallback) ---
+        try:
+            from zra_integration.views import submit_to_zra
+            
+            result = submit_to_zra(invoice)
+            
+            if result.get("resultCd") == "000":
+                invoice.zra_status = "SUBMITTED"
+                invoice.zra_validation_code = result.get("data", {}).get("validationCode", "")
+                invoice.zra_receipt_number = result.get("data", {}).get("receiptNo", "")
+                invoice.zra_submitted_at = datetime.datetime.now()
+                invoice.status = "PAID"
+                invoice.save()
+            else:
+                # ZRA rejected the invoice, but we still must complete the sale
+                invoice.zra_status = "OFFLINE_QUEUED"
+                invoice.status = "PAID"
+                invoice.save()
+        except Exception as e:
+            # VSDC is unreachable (no internet, down, etc.)
+            logger.error(f"VSDC submission failed for invoice {inv_num}: {str(e)}")
+            
+            invoice.zra_status = "OFFLINE_QUEUED"
+            invoice.status = "PAID"
+            invoice.save()
 
         CartService.clear(tenant_id, branch_id, shift.id)
         return invoice

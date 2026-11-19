@@ -61,3 +61,38 @@ def submit_invoice(request):
         invoice.zra_validation_code = submission.validation_code
         invoice.save()
     return Response({"success": submission.status == "SUCCESS", "response": result})
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def sync_offline_invoices(request):
+    """Retries submission of all OFFLINE_QUEUED invoices."""
+    from sales.models import Invoice
+    from django.utils import timezone
+    
+    queued = Invoice.objects.filter(zra_status="OFFLINE_QUEUED", tenant=request.tenant)
+    success = 0
+    failed = 0
+    
+    for inv in queued:
+        try:
+            # Use the same function your submit_invoice view uses
+            result = submit_to_zra(inv)
+            
+            # Check if ZRA accepted it
+            if result.get("resultCd") == "000":
+                inv.zra_status = "SUBMITTED"
+                inv.zra_validation_code = result.get("data", {}).get("validationCode", "")
+                inv.zra_receipt_number = result.get("data", {}).get("receiptNo", "")
+                inv.zra_submitted_at = timezone.now()
+                inv.save()
+                success += 1
+            else:
+                failed += 1
+        except Exception as e:
+            failed += 1
+            
+    return Response({
+        "success": success, 
+        "failed": failed, 
+        "total": queued.count()
+    })

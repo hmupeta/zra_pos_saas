@@ -22,8 +22,8 @@ urlpatterns = [
     path("cart/", views.get_cart, name="get_cart"),
     path("cart/clear/", views.cart_clear, name="cart_clear"),
     path("cart/customer/", views.update_cart_customer, name="update_cart_customer"),
-    path("cart/customer/", views.update_cart_customer, name="update_cart_customer"),
     path("cart/checkout/", views.checkout, name="checkout"),
     path("invoices/", views.invoices_list, name="invoices_list"),
     path("invoices/<int:invoice_id>/receipt.txt", views.receipt_text, name="receipt_text"),
+    path("invoices/<int:pk>/", views.invoice_detail, name="invoice_detail"),
 ]

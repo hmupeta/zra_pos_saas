@@ -153,3 +153,6 @@ def quotations_page(request):
 
 def reservations_page(request):
     return render(request, 'pos/reservations.html')
+
+def invoice_detail_page(request, pk):
+    return render(request, "pos/invoice_detail.html", {"invoice_id": pk})

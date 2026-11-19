@@ -30,6 +30,7 @@
               </td>
               <td class="px-4 py-3 text-right font-semibold" x-text="formatCurrency(inv.total)"></td>
               <td class="px-4 py-3 text-right">
+                <a :href="`/invoices/${inv.id}`" class="text-xs text-brand-600 hover:underline font-medium">View</a>
                 <button @click="printReceiptFor(inv.id)" class="text-xs text-brand-600 hover:underline">Print</button>
               </td>
             </tr>

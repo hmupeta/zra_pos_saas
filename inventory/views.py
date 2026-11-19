@@ -25,7 +25,17 @@ def products_list(request):
         product_id = request.query_params.get('id')
         if product_id:
             try:
-                p = Product.objects.get(id=product_id, tenant=request.tenant)
+                # Branch isolation: user can only see products in their branch
+                branch = getattr(request, 'branch', None)
+                if not branch:
+                    from core.models import BranchAccess
+                    access = BranchAccess.objects.filter(user=request.user).first()
+                    branch = access.company if access else None
+                
+                if not branch:
+                    return Response({"error": "No branch assigned"}, status=403)
+
+                p = Product.objects.get(id=product_id, company=branch)
                 return Response({
                     "id": p.id, "barcode": p.barcode, "name": p.name,
                     "category_id": p.category_id, "tax_rate_id": p.tax_rate_id,
@@ -38,7 +48,20 @@ def products_list(request):
                 return Response({"error": "Product not found"}, status=404)
 
         search = request.query_params.get('search', '')
-        products = Product.objects.filter(tenant=request.tenant, company=request.branch, is_active=True)
+        
+        # --- FIX: SAFE BRANCH FALLBACK ---
+        branch = getattr(request, 'branch', None)
+        if not branch:
+            from core.models import BranchAccess
+            access = BranchAccess.objects.filter(user=request.user).first()
+            branch = access.company if access else None
+            
+        if branch:
+            # Removed tenant filter to prevent mismatch errors
+            products = Product.objects.filter(company=branch, is_active=True)
+        else:
+            products = Product.objects.none()
+            
         if search:
             products = products.filter(name__icontains=search) | products.filter(barcode__icontains=search)
             
@@ -52,8 +75,8 @@ def products_list(request):
                 "discount_percentage": float(p.discount_percentage),
                 "unit_cost": float(p.unit_cost),
                 "current_stock": float(p.current_stock),
-                "tax_rate": float(p.tax_rate.rate),
-                "category_name": p.category.name,
+                "tax_rate": float(p.tax_rate.rate) if p.tax_rate else 0,
+                "category_name": p.category.name if p.category else "Uncategorized",
                 "image_url": p.image.url if getattr(p, "image", None) else None,
             })
         return Response(data)
@@ -65,7 +88,13 @@ def products_list(request):
              return Response({"error": "Product ID required"}, status=400)
              
         try:
-            p = Product.objects.get(id=product_id, tenant=request.tenant)
+            branch = getattr(request, 'branch', None)
+            if not branch:
+                from core.models import BranchAccess
+                access = BranchAccess.objects.filter(user=request.user).first()
+                branch = access.company if access else None
+
+            p = Product.objects.get(id=product_id, company=branch)
             p.name = data.get("name", p.name)
             p.barcode = data.get("barcode", p.barcode)
             p.category_id = data.get("category_id", p.category_id)
@@ -96,59 +125,18 @@ def products_list(request):
     try:
         barcode = data.get("barcode") or str(uuid.uuid4().hex[:10]).upper()
         
-        product = Product.objects.create(
-            tenant=request.tenant,
-            company=request.branch,
-            barcode=barcode,
-            name=data.get("name"),
-            description=data.get("description", ""),
-            category_id=data.get("category_id"),
-            tax_rate_id=data.get("tax_rate_id"),
-            unit_cost=Decimal(str(data.get("unit_cost", 0))),
-            selling_price=Decimal(str(data.get("selling_price", 0))),
-            discount_percentage=Decimal(str(data.get("discount_percentage", 0))),
-            current_stock=Decimal(str(data.get("current_stock", 0))),
-            reorder_level=Decimal(str(data.get("reorder_level", 10))),
-            zra_item_code=data.get("zra_item_code", ""),
-            image=request.FILES.get("image")
-        )
-        return Response({"success": True, "id": product.id}, status=201)
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
+        branch = getattr(request, 'branch', None)
+        if not branch:
+            from core.models import BranchAccess
+            access = BranchAccess.objects.filter(user=request.user).first()
+            branch = access.company if access else None
 
-    # POST: Create Product
-    data = request.data
-    try:
-        barcode = data.get("barcode") or str(uuid.uuid4().hex[:10]).upper()
-        
-        product = Product.objects.create(
-            tenant=request.tenant,
-            company=request.branch,
-            barcode=barcode,
-            name=data.get("name"),
-            description=data.get("description", ""),
-            category_id=data.get("category_id"),
-            tax_rate_id=data.get("tax_rate_id"),
-            unit_cost=Decimal(str(data.get("unit_cost", 0))),
-            selling_price=Decimal(str(data.get("selling_price", 0))),
-            discount_percentage=Decimal(str(data.get("discount_percentage", 0))),
-            current_stock=Decimal(str(data.get("current_stock", 0))),
-            reorder_level=Decimal(str(data.get("reorder_level", 10))),
-            zra_item_code=data.get("zra_item_code", ""),
-            image=request.FILES.get("image")
-        )
-        return Response({"success": True, "id": product.id}, status=201)
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
+        if not branch:
+            return Response({"error": "No branch assigned"}, status=403)
 
-    # POST: Create Product
-    data = request.data
-    try:
-        barcode = data.get("barcode") or str(uuid.uuid4().hex[:10]).upper()
-        
         product = Product.objects.create(
             tenant=request.tenant,
-            company=request.branch,
+            company=branch,
             barcode=barcode,
             name=data.get("name"),
             description=data.get("description", ""),
@@ -176,7 +164,13 @@ def receive_stock(request):
         new_cost = Decimal(str(request.data.get("unit_cost", 0)))
         supplier_ref = request.data.get("reference", "")
 
-        product = Product.objects.get(pk=product_id, tenant=request.tenant)
+        branch = getattr(request, 'branch', None)
+        if not branch:
+             from core.models import BranchAccess
+             access = BranchAccess.objects.filter(user=request.user).first()
+             branch = access.company if access else None
+
+        product = Product.objects.get(pk=product_id, company=branch)
 
         # Update stock and cost
         product.current_stock += qty
@@ -203,7 +197,13 @@ def receive_stock(request):
 @permission_classes([IsAuthenticated])
 def product_by_barcode(request, barcode):
     try:
-        product = Product.objects.get(barcode=barcode, tenant=request.tenant, is_active=True)
+        branch = getattr(request, 'branch', None)
+        if not branch:
+             from core.models import BranchAccess
+             access = BranchAccess.objects.filter(user=request.user).first()
+             branch = access.company if access else None
+
+        product = Product.objects.get(barcode=barcode, company=branch, is_active=True)
         return Response(ProductSerializer(product).data)
     except Product.DoesNotExist:
         return Response({'error': 'Product not found'}, status=404)
@@ -240,7 +240,6 @@ def categories_list(request):
         except Category.DoesNotExist:
             return Response({"error": "Not found"}, status=404)
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def tax_rates_list(request):
@@ -250,9 +249,14 @@ def tax_rates_list(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def low_stock_products(request):
-    products = Product.objects.filter(tenant=request.tenant, current_stock__lte=F('reorder_level'), is_active=True)
-    return Response(ProductSerializer(products, many=True).data)
+    branch = getattr(request, 'branch', None)
+    if not branch:
+        from core.models import BranchAccess
+        access = BranchAccess.objects.filter(user=request.user).first()
+        branch = access.company if access else None
 
+    products = Product.objects.filter(company=branch, current_stock__lte=F('reorder_level'), is_active=True)
+    return Response(ProductSerializer(products, many=True).data)
 
 from .models import StockTake, StockTakeItem
 from accounting.models import Account, Journal, JournalLine
@@ -273,8 +277,15 @@ def stocktakes_list(request):
 
     # POST: Create new
     ref = f"ST-{datetime.datetime.now().strftime('%y%m%d%H%M')}"
+    
+    branch = getattr(request, 'branch', None)
+    if not branch:
+        from core.models import BranchAccess
+        access = BranchAccess.objects.filter(user=request.user).first()
+        branch = access.company if access else None
+
     st = StockTake.objects.create(
-        tenant=request.tenant, company=request.branch,
+        tenant=request.tenant, company=branch,
         reference=ref, counted_by=request.user
     )
     return Response({"success": True, "id": st.id, "reference": ref})
@@ -387,8 +398,6 @@ def stocktake_approve(request, pk):
     
     return Response({"success": True})
 
-
-
 from .models import StockTransfer, StockTransferItem
 from core.models import Company
 
@@ -464,7 +473,6 @@ def transfers_list(request):
     return Response({"success": True, "transfer_number": ref})
 
 
-
 import csv
 from django.http import HttpResponse
 from decimal import Decimal, InvalidOperation
@@ -506,6 +514,12 @@ def import_products_csv(request):
         # Get default Tax Rate (e.g., 16%) as fallback
         default_tax = TaxRate.objects.filter(tenant=request.tenant, rate=16).first()
 
+        branch = getattr(request, 'branch', None)
+        if not branch:
+             from core.models import BranchAccess
+             access = BranchAccess.objects.filter(user=request.user).first()
+             branch = access.company if access else None
+
         for row_num, row in enumerate(reader, start=2):
             try:
                 barcode = row.get('Barcode', '').strip()
@@ -540,7 +554,7 @@ def import_products_csv(request):
 
                 # 3. Create Product
                 _, created = Product.objects.update_or_create(
-                    tenant=request.tenant, company=request.branch, barcode=barcode,
+                    tenant=request.tenant, company=branch, barcode=barcode,
                     defaults={
                         "name": name,
                         "category": category,

@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, get_user_model
 from django.db import transaction
-from .models import SystemNotification,  User, Company, BranchAccess
+from .models import SystemNotification, User, Company, BranchAccess
 from .serializers import UserSerializer
 
 @api_view(["POST"])
@@ -13,20 +13,34 @@ def login(request):
     username = request.data.get("username")
     password = request.data.get("password")
     user = authenticate(request, username=username, password=password)
+    
+    # --- FIXED LOGIC STARTS HERE ---
     if not user:
         return Response({"error": "Invalid credentials"}, status=401)
-    if user.employment_status != "ACTIVE":
-        return Response({"error": f"Account is {user.employment_status}"}, status=403)
-    if user.is_locked():
-        return Response({"error": "Account locked. Try again later."}, status=403)
-    
+
+    # If authenticated, get or create token
     token, _ = Token.objects.get_or_create(user=user)
+
+    # --- BRANCH ENFORCEMENT FOR STAFF ---
+    assigned_access = BranchAccess.objects.filter(user=user).first()
+    assigned_branch_id = str(assigned_access.company.id) if assigned_access else None
+
+    if user.user_type in ('CASHIER', 'MANAGER', 'ACCOUNTANT', 'FINANCE_MANAGER', 'SALES_AGENT'):
+        if not assigned_branch_id:
+            return Response({"error": "No branch assigned to your account. Contact your manager."}, status=403)
+
+    # Return the successful login response
     return Response({
         "token": token.key,
-        "user": UserSerializer(user).data,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "user_type": user.user_type,
+        },
         "tenant": user.tenant.name if user.tenant else None,
-        "tenant_code": user.tenant.code if user.tenant else None,
+        "branchId": assigned_branch_id
     })
+    # --- FIXED LOGIC ENDS HERE ---
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -107,7 +121,8 @@ def users_list_create(request):
                 username=username, email=email, password=password,
                 tenant=request.tenant, user_type=role, employment_status="ACTIVE"
             )
-            if request.branch:
+            # request.branch comes from your TenantBranchMiddleware
+            if hasattr(request, 'branch') and request.branch:
                 BranchAccess.objects.create(user=user, company=request.branch, is_default=True)
             return Response({"success": True, "id": user.id}, status=201)
     except Exception as e:
@@ -120,7 +135,7 @@ def company_settings(request):
     if request.user.user_type not in ("TENANT_OWNER", "MANAGER"):
         return Response({"error": "Only Admins can change settings"}, status=403)
     
-    branch = request.branch
+    branch = getattr(request, 'branch', None)
     if not branch:
         return Response({"error": "No active branch. Please select a branch."}, status=400)
 
@@ -162,7 +177,7 @@ def export_products(request):
     writer = csv.writer(response)
     writer.writerow(['Barcode', 'Name', 'Category', 'Cost', 'Selling Price', 'Stock'])
     for p in Product.objects.filter(tenant=request.tenant):
-        writer.writerow([p.barcode, p.name, p.category.name, p.unit_cost, p.selling_price, p.current_stock])
+        writer.writerow([p.barcode, p.name, p.category.name if p.category else '', p.unit_cost, p.selling_price, p.current_stock])
     return response
 
 @api_view(["GET"])
@@ -196,18 +211,14 @@ import base64
 @permission_classes([IsAuthenticated])
 def generate_barcode_image(request, barcode_num):
     try:
-        # Use Code128 format for standard retail barcodes
         CODE128 = barcode.get_barcode_class('code128')
         my_barcode = CODE128(barcode_num, writer=ImageWriter())
         buffer = BytesIO()
         my_barcode.write(buffer)
-        
-        # Return as base64 image string
         img_str = base64.b64encode(buffer.getvalue()).decode()
         return Response({"success": True, "image": f"data:image/png;base64,{img_str}"})
     except Exception as e:
         return Response({"error": str(e)}, status=400)
-
 
 
 @api_view(["GET", "POST"])
@@ -217,7 +228,6 @@ def branches_manage(request):
         return Response({"error": "Only Tenant Admins can manage branches"}, status=403)
 
     if request.method == "GET":
-        from core.models import Company
         branches = Company.objects.filter(tenant=request.tenant)
         return Response([{
             "id": b.id, "name": b.name, "tpin": b.tpin, "phone": b.phone,
@@ -226,7 +236,6 @@ def branches_manage(request):
 
     # POST: Create new branch
     data = request.data
-    from core.models import Company
     from django.utils.text import slugify
     
     # Check plan limits
@@ -239,11 +248,9 @@ def branches_manage(request):
         tpin=data.get("tpin", ""), phone=data.get("phone", ""), address=data.get("address", "")
     )
     # Automatically assign the creator to the new branch
-    from core.models import BranchAccess
     BranchAccess.objects.create(user=request.user, company=b)
     
     return Response({"success": True, "id": b.id})
-
 
 
 @api_view(["GET"])

@@ -8,12 +8,14 @@
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold">Products & Inventory</h1>
       <div class="flex gap-2">
-        <button @click="showImportModal = true" class="btn-secondary bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+        <button @click="showImportModal = true" x-show="['TENANT_OWNER','MANAGER'].includes(getUser()?.user_type)" class="btn-secondary bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
           <i data-lucide="upload" class="w-4 h-4 inline mr-1"></i> Import CSV
         </button>
         <button @click="exportCsv()" class="btn-secondary">Export CSV</button>
-        <button @click="openReceiveModal(null)" class="btn-secondary">+ Receive Stock</button>
-        <button @click="openProductModal(null)" class="btn-primary">+ New Product</button>
+        
+        <!-- Restricted to Manager/Owner -->
+        <button x-show="['TENANT_OWNER','MANAGER'].includes(getUser()?.user_type)" @click="openReceiveModal(null)" class="btn-secondary">+ Receive Stock</button>
+        <button x-show="['TENANT_OWNER','MANAGER'].includes(getUser()?.user_type)" @click="openProductModal(null)" class="btn-primary">+ New Product</button>
       </div>
     </div>
 
@@ -39,12 +41,12 @@
             <tr class="border-t hover:bg-gray-50">
               <td class="px-4 py-3">
                 <div class="flex items-center gap-3">
-                  <div class="w-10 h-10 bg-gray-100 rounded overflow-hidden flex-shrink-0 border">
+                  <div class="w-10 h-10 bg-gray-100 rounded overflow-hidden flex-shrink-0 border flex items-center justify-center">
                     <template x-if="p.image_url">
                       <img :src="p.image_url" class="w-full h-full object-cover">
                     </template>
                     <template x-if="!p.image_url">
-                      <div class="w-full h-full flex items-center justify-center text-xs text-gray-400">No Img</div>
+                      <div class="text-xs text-gray-400">No Img</div>
                     </template>
                   </div>
                   <div>
@@ -65,8 +67,14 @@
               </td>
               <td class="px-4 py-3 text-right space-x-3">
                 <button @click="viewProduct(p)" class="text-xs text-blue-600 hover:underline font-medium">View</button>
-                <button @click="openProductModal(p.id)" class="text-xs text-gray-500 hover:text-brand-600 hover:underline font-medium">Edit</button>
-                <button @click="openReceiveModal(p)" class="text-xs text-brand-600 hover:underline font-medium">Add Stock</button>
+                
+                <!-- Restricted to Manager/Owner -->
+                <template x-if="['TENANT_OWNER','MANAGER'].includes(getUser()?.user_type)">
+                    <button @click="openProductModal(p.id)" class="text-xs text-gray-500 hover:text-brand-600 hover:underline font-medium">Edit</button>
+                </template>
+                <template x-if="['TENANT_OWNER','MANAGER'].includes(getUser()?.user_type)">
+                    <button @click="openReceiveModal(p)" class="text-xs text-brand-600 hover:underline font-medium">Add Stock</button>
+                </template>
               </td>
             </tr>
           </template>
@@ -75,7 +83,7 @@
       <div x-show="products.length === 0" class="p-8 text-center text-gray-400">No products found</div>
     </div>
 
-    <!-- View Product Modal (High Z-Index) -->
+    <!-- View Product Modal -->
     <template x-if="viewModal">
       <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-[9000] p-4 backdrop-blur-sm">
         <div class="bg-white rounded-xl max-w-lg w-full overflow-hidden shadow-2xl">
@@ -123,14 +131,16 @@
             </div>
             <div class="flex gap-2 pt-4 border-t">
               <button @click="viewModal = null" class="btn-secondary flex-1">Close</button>
-              <button @click="editFromView()" class="btn-primary flex-1">Edit This Product</button>
+              <template x-if="['TENANT_OWNER','MANAGER'].includes(getUser()?.user_type)">
+                <button @click="editFromView()" class="btn-primary flex-1">Edit This Product</button>
+              </template>
             </div>
           </div>
         </div>
       </div>
     </template>
 
-    <!-- New/Edit Product Modal (Extreme Z-Index to be above View Modal) -->
+    <!-- New/Edit Product Modal -->
     <template x-if="showModal">
       <div class="fixed inset-0 bg-black/70 flex items-center justify-center z-[9999] p-4">
         <div class="bg-white rounded-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">

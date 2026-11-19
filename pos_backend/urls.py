@@ -2,41 +2,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from django.http import HttpResponse
-import os
-import subprocess
-import sys
-
-# --- TEMPORARY TRIGGERS ---
-def run_seed(request):
-    if os.environ.get('RENDER') != 'true':
-        return HttpResponse("Only works in production")
-    try:
-        result = subprocess.run([sys.executable, 'seed_production.py'], capture_output=True, text=True)
-        if result.returncode == 0:
-            return HttpResponse(f"<h1>Seed Successful!</h1><pre>{result.stdout}</pre>")
-        else:
-            return HttpResponse(f"<h1>Seed Failed</h1><pre>{result.stderr}</pre>")
-    except Exception as e:
-        return HttpResponse(f"<h1>Error</h1><pre>{str(e)}</pre>")
-
-def run_patch(request):
-    if os.environ.get('RENDER') != 'true':
-        return HttpResponse("Only works in production")
-    try:
-        # We changed this to run the BranchAccess script
-        result = subprocess.run([sys.executable, 'fix_branch_access.py'], capture_output=True, text=True)
-        if result.returncode == 0:
-            return HttpResponse(f"<h1>Patch Successful!</h1><pre>{result.stdout}</pre>")
-        else:
-            return HttpResponse(f"<h1>Patch Failed</h1><pre>{result.stderr}</pre>")
-    except Exception as e:
-        return HttpResponse(f"<h1>Error</h1><pre>{str(e)}</pre>")
-# --------------------------
 
 urlpatterns = [
-    path('trigger-seed/', run_seed),
-    path('trigger-patch/', run_patch), # <--- ADDED THIS LINE
     path('', include('core.urls_web')),
     path("admin/", admin.site.urls),
     path("api/auth/", include("core.urls")),

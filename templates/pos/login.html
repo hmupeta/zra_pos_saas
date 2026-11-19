@@ -96,6 +96,7 @@ function loginForm() {
           method: 'POST',
           body: JSON.stringify({ username: this.username, password: this.password }),
         });
+        
         localStorage.setItem('token', res.token);
         localStorage.setItem('user', JSON.stringify(res.user));
         if (res.tenant) localStorage.setItem('tenant', res.tenant);
@@ -105,6 +106,14 @@ function loginForm() {
           return;
         }
 
+        // --- NEW LOGIC: If backend assigned a branch, go straight to POS ---
+        if (res.branchId) {
+            localStorage.setItem('branchId', res.branchId);
+            location.href = '/pos';
+            return;
+        }
+
+        // If no branchId was returned, it means they are an Owner and need to select one
         const branches = await apiFetch('/auth/branches/');
         if (branches.length === 0) {
           this.error = 'No branches assigned. Contact your administrator.';

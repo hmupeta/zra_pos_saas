@@ -28,22 +28,42 @@ def sales_summary(request):
         "total_tax": float(agg["tax"] or 0),
     })
 
+def get_safe_tenant_branch(request):
+    branch = getattr(request, 'branch', None)
+    if not branch:
+        from core.models import BranchAccess
+        access = BranchAccess.objects.filter(user=request.user).first()
+        branch = access.company if access else None
+
+    tenant = getattr(request, 'tenant', None)
+    if not tenant:
+        tenant = request.user.tenant
+    if not tenant and branch:
+        tenant = branch.tenant
+
+    return tenant, branch
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def dashboard(request):
+    tenant, branch = get_safe_tenant_branch(request)
+    
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
+
     now = timezone.now()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     last_7_days = today - timedelta(days=6)
     
     # Base Querysets
-    branch_invoices = branch_filter(request, Invoice.objects.all())
+    branch_invoices = Invoice.objects.filter(tenant=tenant, company=branch)
     today_invoices = branch_invoices.filter(created_at__gte=today, status="PAID")
     
     # 1. KPIs
     agg = today_invoices.aggregate(t=Sum("total"), c=Count("id"))
-    total_products = Product.objects.filter(tenant=request.tenant, company=request.branch, is_active=True).count()
-    low_stock = Product.objects.filter(tenant=request.tenant, company=request.branch, current_stock__lte=10, is_active=True).count()
+    total_products = Product.objects.filter(tenant=tenant, company=branch, is_active=True).count()
+    low_stock = Product.objects.filter(tenant=tenant, company=branch, current_stock__lte=10, is_active=True).count()
 
     # 2. Sales Trend (Last 7 Days)
     trend_qs = branch_invoices.filter(created_at__gte=last_7_days, status="PAID") \
@@ -70,7 +90,7 @@ def dashboard(request):
     top_data = [float(item['qty']) for item in top_qs]
 
     # 5. Products by Category (Inventory Count)
-    cat_qs = Product.objects.filter(tenant=request.tenant, company=request.branch, is_active=True) \
+    cat_qs = Product.objects.filter(tenant=tenant, company=branch, is_active=True) \
         .values('category__name') \
         .annotate(count=Count('id')) \
         .order_by('-count')
@@ -91,10 +111,9 @@ def dashboard(request):
             "top_products": {"labels": top_labels, "data": top_data},
             "category_breakdown": {"labels": cat_labels, "data": cat_data}
         },
-        "tenant": request.tenant.name if request.tenant else None,
-        "branch": request.branch.name if request.branch else None,
+        "tenant": tenant.name if tenant else None,
+        "branch": branch.name if branch else None,
     })
-
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

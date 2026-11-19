@@ -1,0 +1,133 @@
+{% extends "pos/base.html" %}
+{% block title %}Invoice Detail{% endblock %}
+{% block body %}
+<div class="h-screen flex">
+  {% include "pos/_nav.html" %}
+  <div class="flex-1 overflow-y-auto p-6" x-data="invoiceDetail()" x-init="load()">
+    
+    <!-- Back Button & Header -->
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-4">
+        <a href="/invoices" class="btn-secondary flex items-center gap-2">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i> Back
+        </a>
+        <h1 class="text-2xl font-bold">Invoice Details</h1>
+      </div>
+      <button @click="print()" class="btn-primary flex items-center gap-2">
+        <i data-lucide="printer" class="w-4 h-4"></i> Print Receipt
+      </button>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="text-center py-12 text-gray-400">Loading invoice...</div>
+
+    <!-- Invoice Detail Card -->
+    <div x-show="!loading && invoice" class="card max-w-3xl mx-auto overflow-hidden">
+      
+      <!-- Header -->
+      <div class="bg-gray-50 p-6 border-b flex justify-between items-start">
+        <div>
+          <h2 class="text-xl font-bold text-slate-900" x-text="invoice?.invoice_number"></h2>
+          <p class="text-sm text-gray-500 mt-1" x-text="formatDate(invoice?.created_at)"></p>
+        </div>
+        <div class="text-right">
+          <span class="px-3 py-1 rounded-full text-sm font-bold" 
+                :class="invoice?.status === 'PAID' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                x-text="invoice?.status"></span>
+        </div>
+      </div>
+
+      <!-- Customer Info -->
+      <div class="p-6 border-b grid grid-cols-2 gap-4 text-sm">
+        <div>
+          <p class="text-gray-500 text-xs uppercase font-bold">Customer</p>
+          <p class="font-medium text-slate-800" x-text="invoice?.customer_name"></p>
+        </div>
+        <div>
+          <p class="text-gray-500 text-xs uppercase font-bold">Payment Method</p>
+          <p class="font-medium text-slate-800" x-text="invoice?.payment_method"></p>
+        </div>
+      </div>
+
+      <!-- Line Items -->
+      <div class="p-6">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs uppercase text-gray-500 border-b">
+              <th class="pb-2">Item</th>
+              <th class="pb-2 text-center">Qty</th>
+              <th class="pb-2 text-right">Price</th>
+              <th class="pb-2 text-right">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="item in invoice?.items || []" :key="item.id">
+              <tr class="border-b border-gray-100">
+                <td class="py-3 font-medium" x-text="item.product_name"></td>
+                <td class="py-3 text-center" x-text="item.quantity"></td>
+                <td class="py-3 text-right" x-text="formatCurrency(item.unit_price)"></td>
+                <td class="py-3 text-right font-semibold" x-text="formatCurrency(item.total)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Totals -->
+      <div class="bg-gray-50 p-6 border-t space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Subtotal</span>
+          <span x-text="formatCurrency(invoice?.subtotal)"></span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">Tax (VAT)</span>
+          <span x-text="formatCurrency(invoice?.tax_total)"></span>
+        </div>
+        <div class="flex justify-between" x-show="invoice?.discount_total > 0">
+          <span class="text-gray-500">Discount</span>
+          <span class="text-red-600" x-text="'-' + formatCurrency(invoice?.discount_total)"></span>
+        </div>
+        <div class="flex justify-between text-lg font-bold pt-2 border-t">
+          <span>Total</span>
+          <span class="text-brand-700" x-text="formatCurrency(invoice?.total)"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function invoiceDetail() {
+  return {
+    invoice: null,
+    loading: true,
+
+    async load() {
+      if (!requireAuth() || !requireBranch()) return;
+      
+      // Extract invoice ID from URL (e.g., /invoices/123)
+      const pathParts = window.location.pathname.split('/');
+      const invoiceId = pathParts[pathParts.length - 1];
+
+      try {
+        this.invoice = await apiFetch(`/sales/invoices/${invoiceId}/`);
+      } catch (e) {
+        alert('Failed to load invoice: ' + e.message);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async print() {
+      if (!this.invoice) return;
+      try {
+        const r = await apiFetch(`/sales/invoices/${this.invoice.id}/receipt.txt`);
+        printReceipt(r.text);
+      } catch (e) {
+        alert('Failed to load receipt text');
+      }
+    }
+  }
+}
+</script>
+{% endblock %}

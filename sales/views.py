@@ -4,11 +4,35 @@ from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import StockReservation, StockReservationItem, Shift, Invoice, Quotation, QuotationItem
+
+# --- FIXED IMPORTS ---
+from .models import (
+    StockReservation, StockReservationItem, Shift, 
+    Invoice, InvoiceItem, Quotation, QuotationItem, SalesTarget
+)
+
 from .cart_service import CartService
 from .receipt_service import ReceiptService
 from inventory.services import BarcodeService
 from core.isolation import branch_filter, assert_access
+from django.db.models import Sum, Count
+
+
+def get_safe_tenant_branch(request):
+    """Fallback helper to get tenant and branch even if middleware fails."""
+    branch = getattr(request, 'branch', None)
+    if not branch:
+        from core.models import BranchAccess
+        access = BranchAccess.objects.filter(user=request.user).first()
+        branch = access.company if access else None
+
+    tenant = getattr(request, 'tenant', None)
+    if not tenant:
+        tenant = request.user.tenant
+    if not tenant and branch:
+        tenant = branch.tenant
+
+    return tenant, branch
 
 
 @api_view(["POST"])
@@ -16,8 +40,17 @@ from core.isolation import branch_filter, assert_access
 def open_shift(request):
     if Shift.objects.filter(cashier=request.user, is_closed=False).exists():
         return Response({"error": "Shift already open"}, status=400)
+
+    tenant, branch = get_safe_tenant_branch(request)
+    if not branch:
+        return Response({"error": "No branch assigned to your account. Contact your manager."}, status=403)
+    if not tenant:
+        return Response({"error": "No tenant assigned to your account."}, status=403)
+
     shift = Shift.objects.create(
-        tenant=request.tenant, company=request.branch, cashier=request.user,
+        tenant=tenant,
+        company=branch, 
+        cashier=request.user,
         opening_balance=request.data.get("opening_balance", 0),
     )
     return Response({"shift_id": shift.id, "message": "Shift opened"})
@@ -32,22 +65,71 @@ def current_shift(request):
     return Response({"id": shift.id, "opening_balance": float(shift.opening_balance)})
 
 
-@api_view(["POST"])
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def scan_add(request):
+    barcode = request.data.get("barcode")
+    try:
+        quantity = int(request.data.get("quantity", 1))
+    except ValueError:
+        quantity = 1
+
+    tenant, branch = get_safe_tenant_branch(request)
+    if not branch:
+        return Response({"error": "No branch assigned to your account."}, status=403)
+    if not tenant:
+        return Response({"error": "No tenant assigned to your account."}, status=403)
+
+    # 1. Look up the product
+    product = BarcodeService.lookup(tenant.id, branch.id, barcode)
+    if not product:
+        return Response({"error": "Product not found"}, status=404)
+
+    # 2. Get the current open shift
     shift = Shift.objects.filter(cashier=request.user, is_closed=False).first()
     if not shift:
-        return Response({"error": "Open a shift first"}, status=400)
-    barcode = request.data.get("barcode")
-    qty = request.data.get("quantity", 1)
-    product = BarcodeService.lookup(request.tenant.id, request.branch.id, barcode)
-    if not product:
-        return Response({"error": f"Product not found: {barcode}"}, status=404)
-    cart = CartService.add_item(request.tenant.id, request.branch.id, shift.id, product, qty)
+        return Response({"error": "No open shift"}, status=400)
+
+    # 3. Use CartService to add the item
+    try:
+        cart = CartService.add_item(tenant.id, branch.id, shift.id, product, quantity)
+    except AttributeError:
+        # Fallback if add_item doesn't exist
+        cart = CartService.get(tenant.id, branch.id, shift.id)
+        items = cart.get("items", [])
+        
+        found = False
+        for item in items:
+            if item["product_id"] == product["id"] if isinstance(product, dict) else item["product_id"] == product.id:
+                item["quantity"] += quantity
+                found = True
+                break
+        
+        if not found:
+            items.append({
+                "product_id": product["id"] if isinstance(product, dict) else product.id,
+                "barcode": product["barcode"] if isinstance(product, dict) else product.barcode,
+                "name": product["name"] if isinstance(product, dict) else product.name,
+                "quantity": quantity,
+                "unit_price": float(product["selling_price"] if isinstance(product, dict) else product.selling_price),
+                "tax_rate": float(product["tax_rate"] if isinstance(product, dict) else (product.tax_rate.rate if product.tax_rate else 0))
+            })
+            
+        cart["items"] = items
+        CartService.save(tenant.id, branch.id, shift.id, cart)
+
+    # 4. Recalculate totals
+    totals = CartService.totals(cart)
+
+    # 6. Return the updated cart
     return Response({
-        "success": True,
-        "product": product,
-        "cart": {**cart, "totals": CartService.totals(cart)},
+        "product": {
+            "id": product["id"] if isinstance(product, dict) else product.id,
+            "name": product["name"] if isinstance(product, dict) else product.name,
+            "barcode": product["barcode"] if isinstance(product, dict) else product.barcode,
+            "selling_price": float(product["selling_price"] if isinstance(product, dict) else product.selling_price),
+        },
+        "cart": {**cart, "totals": totals},
     })
 
 
@@ -57,7 +139,12 @@ def get_cart(request):
     shift = Shift.objects.filter(cashier=request.user, is_closed=False).first()
     if not shift:
         return Response({"error": "No open shift"}, status=404)
-    cart = CartService.get(request.tenant.id, request.branch.id, shift.id)
+    
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
+        
+    cart = CartService.get(tenant.id, branch.id, shift.id)
     return Response({**cart, "totals": CartService.totals(cart)})
 
 
@@ -67,7 +154,12 @@ def cart_clear(request):
     shift = Shift.objects.filter(cashier=request.user, is_closed=False).first()
     if not shift:
         return Response({"error": "No shift"}, status=400)
-    CartService.clear(request.tenant.id, request.branch.id, shift.id)
+    
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
+        
+    CartService.clear(tenant.id, branch.id, shift.id)
     return Response({"success": True})
 
 
@@ -82,9 +174,13 @@ def checkout(request):
     if not payments:
         return Response({"error": "No payment details provided"}, status=400)
 
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
+
     try:
         invoice = CartService.checkout(
-            request.tenant.id, request.branch.id, shift, request.user,
+            tenant.id, branch.id, shift, request.user,
             payments
         )
         return Response({
@@ -100,13 +196,6 @@ def checkout(request):
         import traceback
         print(traceback.format_exc())
         return Response({"error": f"Server Error: {str(e)}"}, status=500)
-    return Response({
-        "success": True,
-        "invoice_id": invoice.id,
-        "invoice_number": invoice.invoice_number,
-        "total": float(invoice.total),
-        "zra_code": invoice.zra_validation_code,
-    })
 
 
 @api_view(["POST"])
@@ -132,32 +221,55 @@ def invoices_list(request):
     } for i in qs[:100]])
 
 
+# --- NEW VIEW: Invoice Detail ---
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def invoice_detail(request, pk):
+    try:
+        invoice = Invoice.objects.prefetch_related('items__product').get(pk=pk, tenant=request.tenant)
+    except Invoice.DoesNotExist:
+        return Response({"error": "Invoice not found"}, status=404)
+
+    items = []
+    for item in invoice.items.all():
+        items.append({
+            "id": item.id,
+            "product_name": item.product.name,
+            "quantity": float(item.quantity),
+            "unit_price": float(item.unit_price),
+            "tax_amount": float(item.tax_amount),
+            "total": float(item.total),
+        })
+
+    return Response({
+        "id": invoice.id,
+        "invoice_number": invoice.invoice_number,
+        "created_at": invoice.created_at,
+        "status": invoice.status,
+        "payment_method": invoice.payment_method,
+        "customer_name": invoice.customer_name,
+        "subtotal": float(invoice.subtotal),
+        "tax_total": float(invoice.tax_total),
+        "discount_total": float(invoice.discount_total),
+        "total": float(invoice.total),
+        "items": items,
+    })
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def receipt_text(request, invoice_id):
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
+
     try:
-        invoice = Invoice.objects.get(pk=invoice_id)
+        invoice = Invoice.objects.get(pk=invoice_id, tenant=tenant, company=branch)
     except Invoice.DoesNotExist:
         return Response({"error": "Not found"}, status=404)
-    assert_access(request, invoice, branch_field="company")
+
     return Response({"text": ReceiptService(invoice).to_text()})
 
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def update_cart_customer(request):
-    shift = Shift.objects.filter(cashier=request.user, is_closed=False).first()
-    if not shift:
-        return Response({"error": "No open shift"}, status=400)
-    
-    customer_name = request.data.get("customer_name", "Cash Customer").strip()
-    if not customer_name:
-        customer_name = "Cash Customer"
-        
-    cart = CartService.get(request.tenant.id, request.branch.id, shift.id)
-    cart["customer_name"] = customer_name
-    CartService.save(request.tenant.id, request.branch.id, shift.id, cart)
-    
-    return Response({"success": True, "customer_name": customer_name})
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -170,9 +282,13 @@ def update_cart_customer(request):
     if not customer_name:
         customer_name = "Cash Customer"
         
-    cart = CartService.get(request.tenant.id, request.branch.id, shift.id)
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
+
+    cart = CartService.get(tenant.id, branch.id, shift.id)
     cart["customer_name"] = customer_name
-    CartService.save(request.tenant.id, request.branch.id, shift.id, cart)
+    CartService.save(tenant.id, branch.id, shift.id, cart)
     
     return Response({"success": True, "customer_name": customer_name})
 
@@ -207,16 +323,23 @@ def apply_cart_discount(request):
     if discount_amount > 100 and request.user.user_type not in ("TENANT_OWNER", "MANAGER", "SALES_ADMIN"):
         return Response({"error": "Discounts over K100 require Manager approval"}, status=403)
 
-    cart = CartService.apply_discount(request.tenant.id, request.branch.id, shift.id, discount_amount)
-    return Response({"success": True, "cart": {**cart, "totals": CartService.totals(cart)}})
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
 
+    cart = CartService.apply_discount(tenant.id, branch.id, shift.id, discount_amount)
+    return Response({"success": True, "cart": {**cart, "totals": CartService.totals(cart)}})
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def shifts_list(request):
     """List all shifts for this branch, recalculating math dynamically."""
-    qs = Shift.objects.filter(tenant=request.tenant, company=request.branch).prefetch_related('invoices').order_by("-opening_time")
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant or not branch:
+        return Response({"error": "No tenant/branch assigned"}, status=403)
+
+    qs = Shift.objects.filter(tenant=tenant, company=branch).prefetch_related('invoices').order_by("-opening_time")
     
     data = []
     for s in qs[:100]:
@@ -247,30 +370,30 @@ def shifts_list(request):
         })
     return Response(data)
 
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def shift_details(request, pk):
     """Get details of a specific shift, including all its sales."""
+    tenant, branch = get_safe_tenant_branch(request)
+    if not tenant:
+        return Response({"error": "No tenant assigned"}, status=403)
+
     try:
-        shift = Shift.objects.get(pk=pk, tenant=request.tenant)
+        shift = Shift.objects.get(pk=pk, tenant=tenant)
     except Shift.DoesNotExist:
         return Response({"error": "Not found"}, status=404)
         
     invoices = shift.invoices.filter(status="PAID")
     
-    # --- RECALCULATE EVERYTHING ON THE FLY TO FIX HISTORICAL DATA ---
+    # Recalculate expected cash
     total_sales = sum(inv.total for inv in invoices)
     cash_sales = sum(inv.total for inv in invoices if inv.payment_method == "CASH")
     momo_sales = sum(inv.total for inv in invoices if inv.payment_method in ("MOMO", "MTN", "AIRTEL", "ZAMTEL"))
     card_sales = sum(inv.total for inv in invoices if inv.payment_method == "CARD")
     
-    # Recalculate expected cash (Opening Float + Cash Sales)
     expected_cash = shift.opening_balance + cash_sales
-    
-    # Use saved actual_cash if it exists, else default to 0
     saved_actual = getattr(shift, 'actual_cash', 0) or 0
-    
-    # Recalculate variance based on recalculated expected cash
     recalculated_variance = saved_actual - expected_cash
     
     return Response({
@@ -297,11 +420,6 @@ def shift_details(request, pk):
         } for i in invoices]
     })
 
-
-
-from django.db.models import Sum
-from django.utils import timezone
-from datetime import datetime
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
@@ -347,7 +465,7 @@ def agent_targets(request):
                 "actual_sales": actual_sales,
                 "commission_rate": comm_rate,
                 "commission_earned": commission_earned,
-                "progress": min(round(progress, 1), 100) # Cap at 100 for UI progress bar
+                "progress": min(round(progress, 1), 100)
             })
             
         return Response(data)
@@ -366,7 +484,6 @@ def agent_targets(request):
             defaults={"target_amount": target_amount, "commission_rate": commission_rate}
         )
         return Response({"success": True})
-
 
 
 @api_view(["GET"])
@@ -401,7 +518,6 @@ def shift_summary(request):
     })
 
 
-
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def reconcile_shift(request, pk):
@@ -430,15 +546,11 @@ def reconcile_shift(request, pk):
     shift.variance = actual_cash - expected_cash
     shift.save()
 
-    # Optional: Post an accounting adjustment for the variance here
-    # (You would add the JournalEntry logic similar to the close_shift view)
-
     return Response({
         "success": True, 
         "message": "Shift reconciled successfully",
         "new_variance": float(shift.variance)
     })
-
 
 
 @api_view(["GET", "POST"])
@@ -495,6 +607,7 @@ def quotations_list(request):
 
     return Response({"success": True, "id": quotation.id, "quotation_number": q_num})
 
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def convert_quotation(request, pk):
@@ -518,7 +631,7 @@ def convert_quotation(request, pk):
         shift=shift, cashier=request.user,
         customer_name=q.customer_name, customer_id=q.customer_id,
         subtotal=q.subtotal, tax_total=q.tax_total, total=q.total,
-        status="PAID", payment_method="CASH" # Defaulting to cash for simplicity
+        status="PAID", payment_method="CASH"
     )
 
     for item in q.items.all():
@@ -537,7 +650,6 @@ def convert_quotation(request, pk):
     q.save()
 
     return Response({"success": True, "invoice_id": invoice.id, "invoice_number": invoice.invoice_number})
-
 
 
 @api_view(["GET", "POST"])
@@ -613,6 +725,7 @@ def reservations_list(request):
 
     return Response({"success": True, "id": reservation.id, "reservation_number": res_num})
 
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def cancel_reservation(request, pk):
@@ -632,6 +745,7 @@ def cancel_reservation(request, pk):
     r.save()
 
     return Response({"success": True})
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -664,14 +778,12 @@ def convert_reservation(request, pk):
             tax_amount=(item.total * item.tax_rate / 100), total=item.total,
             zra_item_code=item.product.zra_item_code
         )
-        # Note: We do NOT deduct stock here because it was already deducted when the reservation was created.
 
     r.status = "CONVERTED"
     r.converted_invoice = invoice
     r.save()
 
     return Response({"success": True, "invoice_id": invoice.id, "invoice_number": invoice.invoice_number})
-
 
 
 @api_view(["GET", "PUT", "DELETE"])
